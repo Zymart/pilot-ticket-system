@@ -22,58 +22,34 @@ module.exports = {
         ),
 
     async execute(interaction, { configManager }) {
-        // Check if in ticket channel
         if (!interaction.channel.name.startsWith('ticket-') && !interaction.channel.name.startsWith('closed-')) {
             return await interaction.editReply({
                 content: '❌ This command can only be used inside ticket channels.'
             });
         }
 
-        // Get guild config
         const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
         
-        // Check if pilot_channel_id (category) is set
         if (!guildConfig?.pilotChannelId) {
             return await interaction.editReply({
-                content: '❌ Pilot category not configured. Use `/setup pilot_channel_id:CATEGORY_ID` first.'
+                content: '❌ Pilot category not configured.'
             });
         }
 
-        // Get item from command
         const item = interaction.options.getString('item');
         
-        // Get ticket data
         const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
         const ticketData = ticketEntry ? ticketEntry[1] : null;
         const username = ticketData?.robloxUsername || 'unknown';
         const discordUserId = ticketData?.userId || interaction.user.id;
         const discordUserTag = ticketData?.userTag || interaction.user.tag;
 
-        // Clean names for channel
-        const cleanUser = username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
-        const cleanItem = item.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+        const cleanUser = username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+        const cleanItem = item.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
         const channelName = `${cleanUser}-${cleanItem}`;
 
-        // Get ALL members who can see this channel
         await interaction.channel.fetch();
-        const allowedUsers = [];
-        const allowedRoles = [];
-
-        for (const [id, perm] of interaction.channel.permissionOverwrites.cache) {
-            if (id === interaction.guild.id) continue;
-            
-            if (perm.allow.has(PermissionFlagsBits.ViewChannel)) {
-                allowedUsers.push(id);
-            }
-            else if (perm.type === 0 && perm.allow.has(PermissionFlagsBits.ViewChannel)) {
-                allowedRoles.push(id);
-            }
-        }
-
-        if (!allowedUsers.includes(interaction.user.id)) {
-            allowedUsers.push(interaction.user.id);
-        }
-
+        
         const permissionOverwrites = [
             {
                 id: interaction.guild.id,
@@ -81,9 +57,66 @@ module.exports = {
             }
         ];
 
-        for (const userId of allowedUsers) {
+        // Get all permission overwrites from ticket channel and copy them
+        for (const [id, perm] of interaction.channel.permissionOverwrites.cache) {
+            if (id === interaction.guild.id) continue;
+            
+            if (perm.allow.has(PermissionFlagsBits.ViewChannel)) {
+                // Check if it's a role
+                const role = interaction.guild.roles.cache.get(id);
+                if (role) {
+                    permissionOverwrites.push({
+                        id: id,
+                        type: 0, // role
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory
+                        ]
+                    });
+                } else {
+                    // It's a user - use type 1
+                    permissionOverwrites.push({
+                        id: id,
+                        type: 1, // member
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory,
+                            PermissionFlagsBits.AttachFiles
+                        ]
+                    });
+                }
+            }
+        }
+
+        // Add support roles from config
+        if (guildConfig?.supportRoleIds?.length > 0) {
+            for (const roleId of guildConfig.supportRoleIds) {
+                const role = interaction.guild.roles.cache.get(roleId);
+                if (role) {
+                    const alreadyAdded = permissionOverwrites.some(p => p.id === roleId);
+                    if (!alreadyAdded) {
+                        permissionOverwrites.push({
+                            id: roleId,
+                            type: 0,
+                            allow: [
+                                PermissionFlagsBits.ViewChannel,
+                                PermissionFlagsBits.SendMessages,
+                                PermissionFlagsBits.ReadMessageHistory
+                            ]
+                        });
+                    }
+                }
+            }
+        }
+
+        // Ensure ticket owner is added
+        const ownerAdded = permissionOverwrites.some(p => p.id === discordUserId);
+        if (!ownerAdded) {
             permissionOverwrites.push({
-                id: userId,
+                id: discordUserId,
+                type: 1,
                 allow: [
                     PermissionFlagsBits.ViewChannel,
                     PermissionFlagsBits.SendMessages,
@@ -93,13 +126,17 @@ module.exports = {
             });
         }
 
-        for (const roleId of allowedRoles) {
+        // Ensure command user is added
+        const userAdded = permissionOverwrites.some(p => p.id === interaction.user.id);
+        if (!userAdded) {
             permissionOverwrites.push({
-                id: roleId,
+                id: interaction.user.id,
+                type: 1,
                 allow: [
                     PermissionFlagsBits.ViewChannel,
                     PermissionFlagsBits.SendMessages,
-                    PermissionFlagsBits.ReadMessageHistory
+                    PermissionFlagsBits.ReadMessageHistory,
+                    PermissionFlagsBits.AttachFiles
                 ]
             });
         }
@@ -107,7 +144,7 @@ module.exports = {
         const pilotCategory = interaction.guild.channels.cache.get(guildConfig.pilotChannelId);
         if (!pilotCategory || pilotCategory.type !== ChannelType.GuildCategory) {
             return await interaction.editReply({
-                content: '❌ Pilot channel ID is not a valid category. Please set a category ID in `/setup`.'
+                content: '❌ Invalid pilot category.'
             });
         }
 
@@ -121,16 +158,13 @@ module.exports = {
         try {
             const webChannel = await interaction.guild.channels.create(channelOptions);
 
-            // Get creation timestamp
-            const createdAt = Math.floor(webChannel.createdTimestamp / 1000);
-
-            // Create webhook
             const webhook = await webChannel.createWebhook({
                 name: 'PilotWeb',
                 avatar: interaction.client.user.displayAvatarURL()
             });
 
-            // First message with all info including ticket reference
+            const createdAt = Math.floor(webChannel.createdTimestamp / 1000);
+
             const infoEmbed = new EmbedBuilder()
                 .setTitle('📦 New Web Channel')
                 .addFields(
@@ -143,7 +177,6 @@ module.exports = {
                 .setColor(0x5865F2)
                 .setTimestamp();
 
-            // Webhook embed
             const webhookEmbed = new EmbedBuilder()
                 .setTitle('🔗 Webhook Ready')
                 .setDescription('Use this webhook URL to send messages from external services.')
