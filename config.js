@@ -1,5 +1,8 @@
-{
-  "token": "YOUR_BOT_TOKEN",
-  "clientId": "YOUR_CLIENT_ID",
-  "guildId": "YOUR_GUILD_ID"
-}
+require('dotenv').config();
+
+module.exports = {
+    token: process.env.DISCORD_TOKEN,
+    clientId: process.env.CLIENT_ID,
+    guildId: process.env.GUILD_ID,
+    port: process.env.PORT || 3000
+};
