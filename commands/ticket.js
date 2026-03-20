@@ -46,6 +46,7 @@ module.exports = {
                     .setEmoji('🎫')
             );
 
+        // This panel is IMPORTANT - don't auto delete
         await interaction.channel.send({ embeds: [embed], components: [button] });
         await interaction.editReply({ content: '✅ Ticket panel posted.' });
     }
