@@ -305,7 +305,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 
                 if (webhook) {
                     await interaction.editReply({
-                        content: `📋 **Webhook URL:**\n\`\`\`${webhook.url}\`\`\`\nCopy this URL to use in external services.`
+                        content: `📋 **Click to copy:**\n\`\`\`${webhook.url}\`\`\``
                     });
                 } else {
                     await interaction.editReply({ content: '❌ Webhook not found.' });
