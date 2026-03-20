@@ -29,50 +29,47 @@ module.exports = {
                 .setDescription('The category ID where tickets will be created')
                 .setRequired(true)
         )
-        .addRoleOption(option =>
+        .addStringOption(option =>
             option
-                .setName('support_role')
-                .setDescription('Role that can view all tickets (optional)')
+                .setName('support_role_ids')
+                .setDescription('Role IDs that can view all tickets (comma separated, optional)')
                 .setRequired(false)
         )
-        .addChannelOption(option =>
+        .addStringOption(option =>
             option
-                .setName('log_channel')
-                .setDescription('Channel to log ticket events (optional)')
-                .addChannelTypes(ChannelType.GuildText)
+                .setName('log_channel_id')
+                .setDescription('Channel ID to log ticket events (optional)')
                 .setRequired(false)
         ),
 
     async execute(interaction) {
         const categoryId = interaction.options.getString('ticket_category_id');
-        const supportRole = interaction.options.getRole('support_role');
-        const logChannel = interaction.options.getChannel('log_channel');
+        const supportRoleIds = interaction.options.getString('support_role_ids');
+        const logChannelId = interaction.options.getString('log_channel_id');
 
         const category = interaction.guild.channels.cache.get(categoryId);
         if (!category || category.type !== ChannelType.GuildCategory) {
-            return await interaction.reply({
-                content: '❌ Invalid category ID. Please provide a valid category ID.',
-                flags: MessageFlags.Ephemeral
+            return await interaction.editReply({
+                content: '❌ Invalid category ID. Please provide a valid category ID.'
             });
         }
 
         const config = loadConfig();
         config[interaction.guild.id] = {
             ticketCategoryId: categoryId,
-            supportRoleId: supportRole?.id || null,
-            logChannelId: logChannel?.id || null,
+            supportRoleIds: supportRoleIds ? supportRoleIds.split(',').map(id => id.trim()) : [],
+            logChannelId: logChannelId || null,
             updatedAt: new Date().toISOString(),
             updatedBy: interaction.user.id
         };
         saveConfig(config);
 
         let replyContent = `✅ **Setup complete!**\n\n**Ticket Category:** ${category.name} (\`${categoryId}\`)`;
-        if (supportRole) replyContent += `\n**Support Role:** ${supportRole.name}`;
-        if (logChannel) replyContent += `\n**Log Channel:** ${logChannel}`;
+        if (supportRoleIds) replyContent += `\n**Support Roles:** ${supportRoleIds}`;
+        if (logChannelId) replyContent += `\n**Log Channel:** \`${logChannelId}\``;
 
-        await interaction.reply({
-            content: replyContent,
-            flags: MessageFlags.Ephemeral
+        await interaction.editReply({
+            content: replyContent
         });
     }
 };
