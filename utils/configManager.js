@@ -2,224 +2,131 @@ const jsonbin = require('./jsonbin');
 const fs = require('fs');
 const path = require('path');
 
-const LOCAL_BIN_ID_FILE = path.join(__dirname, '..', '.bin_ids.json');
-const LOCAL_FALLBACK_FILE = path.join(__dirname, '..', 'local_data.json');
+// Use /tmp for Render (persists better) or current directory
+const DATA_DIR = process.env.RENDER ? '/tmp' : __dirname + '/..';
+const BIN_ID_FILE = path.join(DATA_DIR, '.bin_id');
+const LOCAL_FILE = path.join(DATA_DIR, 'data.json');
 
 class ConfigManager {
     constructor() {
         this.configs = new Map();
         this.tickets = new Map();
-        this.masterBinId = null;
-        this.useLocalFallback = false;
+        this.binId = null;
+        this.useFile = false;
     }
 
     async init() {
-        // Check if JSONBin key exists
-        if (!process.env.JSONBIN_MASTER_KEY) {
-            console.warn('WARNING: JSONBIN_MASTER_KEY not set! Using local file fallback.');
-            this.useLocalFallback = true;
-            this.loadLocalFallback();
-            return;
-        }
-
         // Try to load existing bin ID
-        if (fs.existsSync(LOCAL_BIN_ID_FILE)) {
-            try {
-                const saved = JSON.parse(fs.readFileSync(LOCAL_BIN_ID_FILE, 'utf8'));
-                this.masterBinId = saved.masterBinId || null;
-                console.log('Found saved master bin ID:', this.masterBinId);
-            } catch (err) {
-                console.error('Failed to read bin ID file:', err);
+        if (fs.existsSync(BIN_ID_FILE)) {
+            this.binId = fs.readFileSync(BIN_ID_FILE, 'utf8').trim();
+            console.log('Loaded bin ID:', this.binId);
+            
+            // Test if bin exists
+            const test = await jsonbin.read(this.binId);
+            if (!test) {
+                console.log('Bin not found, will create new');
+                this.binId = null;
             }
         }
 
-        // If we have a bin ID, verify it exists
-        if (this.masterBinId) {
-            const testRead = await jsonbin.read(this.masterBinId);
-            if (!testRead) {
-                console.log('Master bin not found, creating new one...');
-                this.masterBinId = null;
-            } else {
-                console.log('Master bin verified:', this.masterBinId);
-            }
-        }
-
-        // Create new master bin if needed
-        if (!this.masterBinId) {
-            this.masterBinId = await jsonbin.create({
-                type: 'pilot-ticket-master',
-                version: '1.0',
+        // Create new bin if needed
+        if (!this.binId) {
+            this.binId = await jsonbin.create({
+                type: 'ticket-bot',
                 guilds: {},
-                activeTickets: {},
-                updatedAt: new Date().toISOString()
+                tickets: {},
+                created: new Date().toISOString()
             });
             
-            if (this.masterBinId && !this.masterBinId.startsWith('fake-')) {
-                fs.writeFileSync(LOCAL_BIN_ID_FILE, JSON.stringify({ masterBinId: this.masterBinId }, null, 2));
-                console.log('Created new master bin:', this.masterBinId);
+            if (this.binId && !this.binId.startsWith('fake-')) {
+                fs.writeFileSync(BIN_ID_FILE, this.binId);
+                console.log('Created new bin:', this.binId);
             } else {
-                console.error('Failed to create master bin, using local fallback');
-                this.useLocalFallback = true;
+                console.log('JSONBin failed, using local file');
+                this.useFile = true;
             }
         }
 
-        // Load all data
-        await this.loadAllData();
+        // Load data
+        await this.load();
     }
 
-    async loadAllData() {
-        if (this.useLocalFallback) {
-            this.loadLocalFallback();
+    async load() {
+        if (this.useFile) {
+            // Load from local file
+            if (fs.existsSync(LOCAL_FILE)) {
+                const data = JSON.parse(fs.readFileSync(LOCAL_FILE));
+                Object.entries(data.guilds || {}).forEach(([k, v]) => this.configs.set(k, v));
+                Object.entries(data.tickets || {}).forEach(([k, v]) => this.tickets.set(k, v));
+            }
+            console.log(`Loaded from file: ${this.configs.size} configs, ${this.tickets.size} tickets`);
             return;
         }
 
-        if (!this.masterBinId) return;
-
-        try {
-            const data = await jsonbin.read(this.masterBinId);
-            if (!data) {
-                console.warn('Master bin empty');
-                return;
-            }
-
-            // Load guild configs
-            if (data.guilds) {
-                for (const [guildId, config] of Object.entries(data.guilds)) {
-                    this.configs.set(guildId, config);
-                }
-            }
-
-            // Load active tickets
-            if (data.activeTickets) {
-                for (const [userId, ticket] of Object.entries(data.activeTickets)) {
-                    this.tickets.set(userId, ticket);
-                }
-            }
-
-            console.log(`Loaded ${this.configs.size} guild configs, ${this.tickets.size} tickets`);
-
-        } catch (err) {
-            console.error('Failed to load from master bin:', err);
-            this.useLocalFallback = true;
-            this.loadLocalFallback();
+        // Load from JSONBin
+        const data = await jsonbin.read(this.binId);
+        if (data) {
+            Object.entries(data.guilds || {}).forEach(([k, v]) => this.configs.set(k, v));
+            Object.entries(data.tickets || {}).forEach(([k, v]) => this.tickets.set(k, v));
+            console.log(`Loaded from JSONBin: ${this.configs.size} configs, ${this.tickets.size} tickets`);
         }
     }
 
-    async saveToMasterBin() {
-        if (this.useLocalFallback) {
-            this.saveLocalFallback();
-            return;
-        }
-
-        if (!this.masterBinId || this.masterBinId.startsWith('fake-')) {
-            console.error('Cannot save: no valid master bin');
-            return;
-        }
-
-        const data = {
-            type: 'pilot-ticket-master',
-            version: '1.0',
-            guilds: Object.fromEntries(this.configs),
-            activeTickets: Object.fromEntries(this.tickets),
-            updatedAt: new Date().toISOString()
-        };
-
-        try {
-            const success = await jsonbin.update(this.masterBinId, data);
-            if (success) {
-                console.log('Saved to JSONBin successfully');
-            } else {
-                console.error('Failed to save to JSONBin');
-                this.useLocalFallback = true;
-                this.saveLocalFallback();
-            }
-        } catch (err) {
-            console.error('Failed to save to master bin:', err);
-            this.useLocalFallback = true;
-            this.saveLocalFallback();
-        }
-    }
-
-    loadLocalFallback() {
-        if (!fs.existsSync(LOCAL_FALLBACK_FILE)) return;
-        
-        try {
-            const data = JSON.parse(fs.readFileSync(LOCAL_FALLBACK_FILE, 'utf8'));
-            
-            if (data.guilds) {
-                for (const [guildId, config] of Object.entries(data.guilds)) {
-                    this.configs.set(guildId, config);
-                }
-            }
-            
-            if (data.activeTickets) {
-                for (const [userId, ticket] of Object.entries(data.activeTickets)) {
-                    this.tickets.set(userId, ticket);
-                }
-            }
-            
-            console.log(`Loaded from local fallback: ${this.configs.size} configs, ${this.tickets.size} tickets`);
-        } catch (err) {
-            console.error('Failed to load local fallback:', err);
-        }
-    }
-
-    saveLocalFallback() {
+    async save() {
         const data = {
             guilds: Object.fromEntries(this.configs),
-            activeTickets: Object.fromEntries(this.tickets),
-            updatedAt: new Date().toISOString()
+            tickets: Object.fromEntries(this.tickets),
+            updated: new Date().toISOString()
         };
-        
-        try {
-            fs.writeFileSync(LOCAL_FALLBACK_FILE, JSON.stringify(data, null, 2));
-            console.log('Saved to local fallback');
-        } catch (err) {
-            console.error('Failed to save local fallback:', err);
+
+        if (this.useFile) {
+            fs.writeFileSync(LOCAL_FILE, JSON.stringify(data, null, 2));
+            console.log('Saved to file');
+            return;
+        }
+
+        // Update existing bin (don't create new!)
+        const success = await jsonbin.update(this.binId, data);
+        if (success) {
+            console.log('Saved to JSONBin');
+        } else {
+            console.error('Failed to save to JSONBin');
+            // Fallback to file
+            this.useFile = true;
+            fs.writeFileSync(LOCAL_FILE, JSON.stringify(data, null, 2));
         }
     }
 
+    // Public methods
     async getGuildConfig(guildId) {
         return this.configs.get(guildId) || null;
     }
 
     async saveGuildConfig(guildId, config) {
-        this.configs.set(guildId, {
-            ...config,
-            updatedAt: new Date().toISOString()
-        });
-        
-        await this.saveToMasterBin();
-        console.log('Saved guild config for', guildId);
+        this.configs.set(guildId, config);
+        await this.save();
     }
 
-    async loadAllTickets() {
-        // Already loaded in init
-        return;
+    async saveTicket(userId, ticket) {
+        this.tickets.set(userId, ticket);
+        await this.save();
     }
 
-    async saveTicket(userId, ticketData) {
-        this.tickets.set(userId, {
-            ...ticketData,
-            savedAt: new Date().toISOString()
-        });
-        
-        await this.saveToMasterBin();
-        console.log('Saved ticket for user', userId);
-    }
-
-    async closeTicket(userId, closedData) {
+    async closeTicket(userId) {
         this.tickets.delete(userId);
-        await this.saveToMasterBin();
-        console.log('Closed ticket for user', userId);
+        await this.save();
     }
 
     getTicket(userId) {
-        return this.tickets.get(userId) || null;
+        return this.tickets.get(userId);
     }
 
     hasTicket(userId) {
         return this.tickets.has(userId);
+    }
+
+    async loadAllTickets() {
+        // Already loaded
     }
 }
 
