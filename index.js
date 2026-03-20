@@ -1,9 +1,9 @@
-const { 
-    Client, 
-    GatewayIntentBits, 
-    Collection, 
-    REST, 
-    Routes, 
+const {
+    Client,
+    GatewayIntentBits,
+    Collection,
+    REST,
+    Routes,
     Events,
     ChannelType,
     PermissionFlagsBits,
@@ -21,6 +21,14 @@ const path = require('path');
 const config = require('./config');
 const jsonbin = require('./utils/jsonbin');
 
+const GUILD_CONFIG_PATH = path.join(__dirname, 'guildConfig.json');
+
+function getGuildConfig(guildId) {
+    if (!fs.existsSync(GUILD_CONFIG_PATH)) return null;
+    const config = JSON.parse(fs.readFileSync(GUILD_CONFIG_PATH, 'utf8'));
+    return config[guildId] || null;
+}
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -31,7 +39,6 @@ const client = new Client({
 
 client.commands = new Collection();
 
-// Load commands
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 const commands = [];
@@ -43,7 +50,6 @@ for (const file of commandFiles) {
     commands.push(command.data.toJSON());
 }
 
-// Deploy commands
 if (process.env.NODE_ENV === 'production') {
     const rest = new REST({ version: '10' }).setToken(config.token);
     (async () => {
@@ -64,18 +70,16 @@ client.once(Events.ClientReady, () => {
     console.log(`Bot ready: ${client.user.tag}`);
 });
 
-// Active tickets: userId -> { channelId, binId }
 const userTickets = new Map();
 
 client.on(Events.InteractionCreate, async interaction => {
     try {
-        // Slash commands
         if (interaction.isChatInputCommand()) {
             const cmd = client.commands.get(interaction.commandName);
             if (!cmd) return;
-            
+
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            
+
             try {
                 await cmd.execute(interaction);
             } catch (e) {
@@ -83,12 +87,10 @@ client.on(Events.InteractionCreate, async interaction => {
                 await interaction.editReply({ content: '❌ Error executing command.' });
             }
         }
-
-        // Create Ticket button → Show Modal
         else if (interaction.isButton() && interaction.customId === 'create_ticket') {
             if (userTickets.has(interaction.user.id)) {
-                return interaction.reply({ 
-                    content: '❌ You already have an open ticket. Close it first.', 
+                return interaction.reply({
+                    content: '❌ You already have an open ticket. Close it first.',
                     flags: MessageFlags.Ephemeral
                 });
             }
@@ -129,8 +131,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
             await interaction.showModal(modal);
         }
-
-        // Modal Submit → Create Ticket
         else if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -142,7 +142,9 @@ client.on(Events.InteractionCreate, async interaction => {
             const channelName = `ticket-${cleanName}-${Math.floor(Math.random()*99)}`;
 
             try {
-                const ticketChannel = await interaction.guild.channels.create({
+                const guildConfig = getGuildConfig(interaction.guild.id);
+                
+                const channelOptions = {
                     name: channelName,
                     type: ChannelType.GuildText,
                     permissionOverwrites: [
@@ -160,7 +162,24 @@ client.on(Events.InteractionCreate, async interaction => {
                             ]
                         }
                     ]
-                });
+                };
+
+                if (guildConfig?.ticketCategoryId) {
+                    channelOptions.parent = guildConfig.ticketCategoryId;
+                }
+
+                if (guildConfig?.supportRoleId) {
+                    channelOptions.permissionOverwrites.push({
+                        id: guildConfig.supportRoleId,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory
+                        ]
+                    });
+                }
+
+                const ticketChannel = await interaction.guild.channels.create(channelOptions);
 
                 const ticketData = {
                     userId: interaction.user.id,
@@ -212,8 +231,6 @@ client.on(Events.InteractionCreate, async interaction => {
                 await interaction.editReply({ content: '❌ Failed to create ticket. Check bot permissions.' });
             }
         }
-
-        // Close Ticket button
         else if (interaction.isButton() && interaction.customId.startsWith('close_')) {
             const binId = interaction.customId.replace('close_', '');
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -231,7 +248,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 await interaction.channel.permissionOverwrites.set([
                     { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] }
                 ]);
-                
+
                 const newName = `closed-${interaction.channel.name}`.slice(0, 100);
                 await interaction.channel.setName(newName);
 
