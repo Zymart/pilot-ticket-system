@@ -1,82 +1,44 @@
 const fetch = require('node-fetch');
 
-const JSONBIN_ROOT = 'https://api.jsonbin.io/v3';
-const MASTER_KEY = process.env.JSONBIN_MASTER_KEY;
+const ROOT = 'https://api.jsonbin.io/v3';
+const KEY = process.env.JSONBIN_MASTER_KEY;
 
-class JSONBin {
-    constructor() {
-        if (!MASTER_KEY) {
-            console.error('ERROR: JSONBIN_MASTER_KEY not set!');
-        }
-        this.headers = {
-            'X-Master-Key': MASTER_KEY,
-            'Content-Type': 'application/json'
-        };
+async function request(path, opts = {}) {
+    if (!KEY) {
+        console.error('No JSONBIN_MASTER_KEY!');
+        return null;
     }
-
-    async create(data) {
-        if (!MASTER_KEY) return 'fake-' + Date.now();
-
-        try {
-            const res = await fetch(`${JSONBIN_ROOT}/b`, {
-                method: 'POST',
-                headers: this.headers,
-                body: JSON.stringify(data)
-            });
-            
-            if (!res.ok) {
-                const err = await res.text();
-                throw new Error(`HTTP ${res.status}: ${err}`);
+    
+    try {
+        const res = await fetch(`${ROOT}${path}`, {
+            ...opts,
+            headers: {
+                'X-Master-Key': KEY,
+                'Content-Type': 'application/json',
+                ...opts.headers
             }
-            
-            const json = await res.json();
-            return json.metadata?.id;
-            
-        } catch (err) {
-            console.error('JSONBin create failed:', err.message);
-            return 'fake-' + Date.now();
-        }
-    }
-
-    async read(binId) {
-        if (!MASTER_KEY || binId.startsWith('fake-')) return null;
-
-        try {
-            const res = await fetch(`${JSONBIN_ROOT}/b/${binId}`, {
-                headers: this.headers
-            });
-            
-            if (!res.ok) {
-                if (res.status === 404) return null;
-                throw new Error(`HTTP ${res.status}`);
-            }
-            
-            const json = await res.json();
-            return json.record;
-            
-        } catch (err) {
-            console.error('JSONBin read failed:', err.message);
+        });
+        
+        if (!res.ok) {
+            console.error('JSONBin error:', res.status, await res.text());
             return null;
         }
-    }
-
-    async update(binId, data) {
-        if (!MASTER_KEY || binId.startsWith('fake-')) return false;
-
-        try {
-            const res = await fetch(`${JSONBIN_ROOT}/b/${binId}`, {
-                method: 'PUT',
-                headers: this.headers,
-                body: JSON.stringify(data)
-            });
-            
-            return res.ok;
-            
-        } catch (err) {
-            console.error('JSONBin update failed:', err.message);
-            return false;
+        
+        if (opts.method === 'GET') {
+            const json = await res.json();
+            return json.record;
         }
+        
+        return true;
+        
+    } catch (err) {
+        console.error('JSONBin request failed:', err.message);
+        return null;
     }
 }
 
-module.exports = new JSONBin();
+module.exports = {
+    create: (data) => request('/b', { method: 'POST', body: JSON.stringify(data) }).then(r => r?.metadata?.id),
+    read: (id) => id ? request(`/b/${id}`, { method: 'GET' }) : null,
+    update: (id, data) => id ? request(`/b/${id}`, { method: 'PUT', body: JSON.stringify(data) }) : false
+};
