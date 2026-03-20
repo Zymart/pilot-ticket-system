@@ -328,6 +328,55 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
+// DETECT CHANNEL DELETION - CLEAN UP TICKETS
+client.on(Events.ChannelDelete, async channel => {
+    // Only care about ticket channels
+    if (!channel.name.startsWith('ticket-') && !channel.name.startsWith('closed-')) return;
+    
+    console.log(`Ticket channel deleted: ${channel.name} (${channel.id})`);
+    
+    // Find ticket by channel ID
+    let ticketUserId = null;
+    let ticketData = null;
+    
+    for (const [userId, data] of configManager.tickets) {
+        if (data.channelId === channel.id) {
+            ticketUserId = userId;
+            ticketData = data;
+            break;
+        }
+    }
+    
+    if (!ticketUserId) {
+        console.log('No ticket found for deleted channel');
+        return;
+    }
+    
+    // Update JSONBin status
+    if (ticketData.binId && !ticketData.binId.startsWith('fake-')) {
+        try {
+            const data = await jsonbin.read(ticketData.binId);
+            if (data) {
+                data.status = 'deleted';
+                data.deletedAt = new Date().toISOString();
+                data.deletedBy = 'manual';
+                await jsonbin.update(ticketData.binId, data);
+            }
+        } catch (err) {
+            console.error('Failed to update JSONBin on delete:', err);
+        }
+    }
+    
+    // Remove from memory
+    await configManager.closeTicket(ticketUserId, {
+        ...ticketData,
+        status: 'deleted',
+        deletedAt: new Date().toISOString()
+    });
+    
+    console.log(`Cleaned up ticket for user ${ticketUserId}`);
+});
+
 client.login(config.token).catch(err => {
     console.error('Login failed:', err);
     process.exit(1);
