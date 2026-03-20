@@ -1,8 +1,8 @@
 const fs = require('fs');
 const path = require('path');
-const jsonbin = require('./jsonbin');
 
-const FILE = path.join(__dirname, '..', 'data.json');
+// Use Render's persistent disk
+const DATA_FILE = '/var/data/bot_data.json';
 
 class ConfigManager {
     constructor() {
@@ -10,20 +10,26 @@ class ConfigManager {
         this.tickets = new Map();
     }
 
-    async init() {
+    init() {
+        // Ensure directory exists
+        const dir = path.dirname(DATA_FILE);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+        
         this.load();
         console.log(`Loaded ${this.configs.size} configs, ${this.tickets.size} tickets`);
     }
 
     load() {
-        if (!fs.existsSync(FILE)) return;
+        if (!fs.existsSync(DATA_FILE)) return;
         
         try {
-            const d = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+            const d = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
             Object.entries(d.guilds || {}).forEach(([k,v]) => this.configs.set(k,v));
             Object.entries(d.tickets || {}).forEach(([k,v]) => this.tickets.set(k,v));
         } catch (err) {
-            console.error('Failed to load:', err);
+            console.error('Load failed:', err);
         }
     }
 
@@ -35,44 +41,19 @@ class ConfigManager {
         };
         
         try {
-            fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
-            console.log('Saved data');
+            fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
         } catch (err) {
-            console.error('Failed to save:', err);
+            console.error('Save failed:', err);
         }
     }
 
-    async getGuildConfig(guildId) {
-        return this.configs.get(guildId) || null;
-    }
-
-    async saveGuildConfig(guildId, config) {
-        this.configs.set(guildId, {
-            ...config,
-            updatedAt: new Date().toISOString()
-        });
-        this.save();
-    }
-
-    async saveTicket(userId, ticketData) {
-        this.tickets.set(userId, ticketData);
-        this.save();
-    }
-
-    async closeTicket(userId, closedData) {
-        this.tickets.delete(userId);
-        this.save();
-    }
-
-    getTicket(userId) {
-        return this.tickets.get(userId) || null;
-    }
-
-    hasTicket(userId) {
-        return this.tickets.has(userId);
-    }
-
-    async loadAllTickets() {}
+    getGuildConfig(id) { return this.configs.get(id); }
+    saveGuildConfig(id, cfg) { this.configs.set(id, cfg); this.save(); }
+    saveTicket(id, t) { this.tickets.set(id, t); this.save(); }
+    closeTicket(id) { this.tickets.delete(id); this.save(); }
+    getTicket(id) { return this.tickets.get(id); }
+    hasTicket(id) { return this.tickets.has(id); }
+    loadAllTickets() {}
 }
 
 module.exports = new ConfigManager();
