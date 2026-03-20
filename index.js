@@ -6,11 +6,13 @@ const {
     Routes, 
     Events,
     ChannelType,
-    PermissionFlagsBits
+    PermissionFlagsBits,
+    EmbedBuilder
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
+const jsonbin = require('./utils/jsonbin');
 
 const client = new Client({
     intents: [
@@ -54,8 +56,11 @@ client.once(Events.ClientReady, () => {
     console.log(`Ready: ${client.user.tag}`);
 });
 
+// In-memory cache for active tickets (binId -> channel mapping)
+const activeTickets = new Map();
+
 client.on(Events.InteractionCreate, async interaction => {
-    // Slash
+    // Slash commands
     if (interaction.isChatInputCommand()) {
         const cmd = client.commands.get(interaction.commandName);
         if (!cmd) return;
@@ -67,22 +72,29 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // Button = INSTANT TICKET
+    // Button = INSTANT TICKET + STORE IN JSONBIN
     if (interaction.isButton() && interaction.customId.startsWith('ticket_')) {
         const parts = interaction.customId.split('_');
-        const buttonNum = parts[1];
         const buttonLabel = parts.slice(2).join('_').replace(/_/g, ' ');
         
         await interaction.deferReply({ ephemeral: true });
 
-        // Create channel name
-        const channelName = `ticket-${interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString().slice(-4)}`;
+        // Check if user already has open ticket
+        for (const [binId, data] of activeTickets) {
+            if (data.userId === interaction.user.id && data.status === 'open') {
+                return interaction.editReply({ 
+                    content: `❌ You already have an open ticket.` 
+                });
+            }
+        }
+
+        const channelName = `ticket-${interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)}-${Math.floor(Math.random()*9999)}`;
 
         try {
+            // Create Discord channel
             const ticketChannel = await interaction.guild.channels.create({
                 name: channelName,
                 type: ChannelType.GuildText,
-                parent: null, // Set category ID if you want
                 permissionOverwrites: [
                     {
                         id: interaction.guild.id,
@@ -93,29 +105,98 @@ client.on(Events.InteractionCreate, async interaction => {
                         allow: [
                             PermissionFlagsBits.ViewChannel,
                             PermissionFlagsBits.SendMessages,
-                            PermissionFlagsBits.ReadMessageHistory
+                            PermissionFlagsBits.ReadMessageHistory,
+                            PermissionFlagsBits.AttachFiles
                         ]
                     }
                 ]
             });
 
-            // Send welcome message in ticket
-            await ticketChannel.send({
-                content: `<@${interaction.user.id}>`,
-                embeds: [{
-                    title: `Ticket Opened: ${buttonLabel.toUpperCase()}`,
-                    description: `Hey ${interaction.user.username}, support will be with you shortly.\n\n**Type:** ${buttonLabel}\n**Opened:** <t:${Math.floor(Date.now()/1000)}:R>`,
-                    color: 0x5865F2
+            // Store in JSONBin
+            const ticketData = {
+                userId: interaction.user.id,
+                userTag: interaction.user.tag,
+                channelId: ticketChannel.id,
+                guildId: interaction.guild.id,
+                type: buttonLabel,
+                status: 'open',
+                createdAt: new Date().toISOString(),
+                messages: []
+            };
+
+            const binId = await jsonbin.create(ticketData);
+            activeTickets.set(binId, { ...ticketData, binId });
+
+            // Send welcome message
+            const welcomeEmbed = new EmbedBuilder()
+                .setTitle(`Ticket: ${buttonLabel}`)
+                .setDescription(`Hey ${interaction.user}, describe your issue here.\n\n**Ticket ID:** \`${binId}\``)
+                .setColor(0x5865F2)
+                .setFooter({ text: 'Click 🔒 to close this ticket' });
+
+            const closeButton = {
+                type: 1,
+                components: [{
+                    type: 2,
+                    custom_id: `close_${binId}`,
+                    label: 'Close Ticket',
+                    style: 4,
+                    emoji: '🔒'
                 }]
+            };
+
+            await ticketChannel.send({ 
+                content: `<@${interaction.user.id}>`,
+                embeds: [welcomeEmbed],
+                components: [closeButton]
             });
 
             await interaction.editReply({
-                content: `✅ Ticket created: ${ticketChannel}`
+                content: `✅ Ticket created: ${ticketChannel}\n**ID:** \`${binId}\``
             });
 
         } catch (err) {
             console.error(err);
             await interaction.editReply({ content: '❌ Failed to create ticket.' });
+        }
+    }
+
+    // Close ticket button
+    if (interaction.isButton() && interaction.customId.startsWith('close_')) {
+        const binId = interaction.customId.replace('close_', '');
+        
+        await interaction.deferReply({ ephemeral: true });
+
+        try {
+            // Update JSONBin
+            const data = await jsonbin.read(binId);
+            data.status = 'closed';
+            data.closedAt = new Date().toISOString();
+            data.closedBy = interaction.user.id;
+            await jsonbin.update(binId, data);
+
+            // Remove from memory
+            activeTickets.delete(binId);
+
+            // Delete channel or rename
+            await interaction.channel.setName(`closed-${interaction.channel.name}`);
+            await interaction.channel.permissionOverwrites.set([]); // Lock it
+
+            await interaction.editReply({ content: '🔒 Ticket closed and archived.' });
+
+            // Send final message
+            await interaction.channel.send({
+                embeds: [{
+                    title: 'Ticket Closed',
+                    description: `Closed by ${interaction.user.tag}\n**ID:** \`${binId}\``,
+                    color: 0xED4245,
+                    timestamp: new Date()
+                }]
+            });
+
+        } catch (err) {
+            console.error(err);
+            await interaction.editReply({ content: '❌ Error closing ticket.' });
         }
     }
 });
