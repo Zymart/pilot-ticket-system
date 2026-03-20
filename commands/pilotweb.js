@@ -42,7 +42,7 @@ module.exports = {
         // Get item from command
         const item = interaction.options.getString('item');
         
-        // Get ticket data to find username and owner
+        // Get ticket data
         const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
         const ticketData = ticketEntry ? ticketEntry[1] : null;
         const username = ticketData?.robloxUsername || 'unknown';
@@ -121,19 +121,24 @@ module.exports = {
         try {
             const webChannel = await interaction.guild.channels.create(channelOptions);
 
+            // Get creation timestamp
+            const createdAt = Math.floor(webChannel.createdTimestamp / 1000);
+
             // Create webhook
             const webhook = await webChannel.createWebhook({
                 name: 'PilotWeb',
                 avatar: interaction.client.user.displayAvatarURL()
             });
 
-            // First message with all info
+            // First message with all info including ticket reference
             const infoEmbed = new EmbedBuilder()
                 .setTitle('📦 New Web Channel')
                 .addFields(
-                    { name: 'Discord Owner', value: `<@${discordUserId}> (${discordUserTag})`, inline: true },
+                    { name: 'Ticket Owner', value: `<@${discordUserId}> (${discordUserTag})`, inline: true },
                     { name: 'Roblox User', value: username, inline: true },
-                    { name: 'Item', value: item, inline: true }
+                    { name: 'Item', value: item, inline: true },
+                    { name: 'Created', value: `<t:${createdAt}:F>`, inline: false },
+                    { name: 'Ticket Channel', value: `${interaction.channel}`, inline: false }
                 )
                 .setColor(0x5865F2)
                 .setTimestamp();
