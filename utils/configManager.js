@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 
-// Use Render's persistent disk
 const DATA_FILE = '/var/data/bot_data.json';
 
 class ConfigManager {
@@ -11,7 +10,6 @@ class ConfigManager {
     }
 
     init() {
-        // Ensure directory exists
         const dir = path.dirname(DATA_FILE);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
