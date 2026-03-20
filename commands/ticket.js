@@ -4,68 +4,49 @@ const {
     ActionRowBuilder, 
     ButtonBuilder, 
     ButtonStyle,
-    PermissionFlagsBits
+    PermissionFlagsBits,
+    MessageFlags
 } = require('discord.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('ticket')
-        .setDescription('Post a ticket panel')
+        .setDescription('Post the ticket panel (Admin only)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-        .addStringOption(o => o.setName('title').setDescription('Panel title').setRequired(true))
-        .addStringOption(o => o.setName('message').setDescription('Panel description').setRequired(true))
-        .addStringOption(o => o.setName('button1').setDescription('Button 1 text').setRequired(true))
-        .addStringOption(o => o.setName('button2').setDescription('Button 2 (optional)').setRequired(false))
-        .addStringOption(o => o.setName('button3').setDescription('Button 3 (optional)').setRequired(false))
-        .addStringOption(o => o.setName('color').setDescription('Embed color: blurple, red, green, yellow, black').setRequired(false)),
+        .addStringOption(o => o.setName('title').setDescription('Embed title').setRequired(true))
+        .addStringOption(o => o.setName('description').setDescription('Embed description').setRequired(true))
+        .addStringOption(o => o.setName('color').setDescription('red, green, blue, yellow, purple, black').setRequired(false)),
 
     async execute(interaction) {
         const title = interaction.options.getString('title');
-        const message = interaction.options.getString('message');
-        const colorChoice = interaction.options.getString('color') || 'blurple';
+        const description = interaction.options.getString('description');
+        const colorChoice = interaction.options.getString('color') || 'blue';
 
         const colors = {
-            blurple: 0x5865F2,
             red: 0xED4245,
             green: 0x57F287,
+            blue: 0x5865F2,
             yellow: 0xFEE75C,
+            purple: 0xEB459E,
             black: 0x23272A
         };
 
-        // Build buttons
-        const buttons = [];
-        for (let i = 1; i <= 3; i++) {
-            const label = interaction.options.getString(`button${i}`);
-            if (label) {
-                buttons.push(
-                    new ButtonBuilder()
-                        .setCustomId(`ticket_${i}_${label.toLowerCase().replace(/\s+/g, '_')}`)
-                        .setLabel(label)
-                        .setStyle(i === 1 ? ButtonStyle.Success : i === 2 ? ButtonStyle.Primary : ButtonStyle.Danger)
-                        .setEmoji(i === 1 ? '🎫' : i === 2 ? '💬' : '⚠️')
-                );
-            }
-        }
-
-        // Cool embed
         const embed = new EmbedBuilder()
-            .setTitle(` ${title}`)
-            .setDescription(`>>> ${message}`)
-            .setColor(colors[colorChoice] || colors.blurple)
-            .addFields(
-                { name: 'How it works', value: 'Click a button below to open a private ticket channel.', inline: false }
-            )
-            .setImage('https://media.discordapp.net/attachments/933841367677173840/1083711883211116614/divider.png') // Optional divider line
-            .setTimestamp()
-            .setFooter({ text: 'Ticket System', iconURL: interaction.guild.iconURL() });
+            .setTitle(title)
+            .setDescription(description)
+            .setColor(colors[colorChoice] || colors.blue)
+            .setTimestamp();
 
-        // Max 3 buttons per row
-        const rows = [];
-        for (let i = 0; i < buttons.length; i += 3) {
-            rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 3)));
-        }
+        const button = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('create_ticket')
+                    .setLabel('Create Ticket')
+                    .setStyle(ButtonStyle.Success)
+                    .setEmoji('🎫')
+            );
 
-        await interaction.channel.send({ embeds: [embed], components: rows });
-        await interaction.reply({ content: '✅ Panel posted.', ephemeral: true });
+        await interaction.channel.send({ embeds: [embed], components: [button] });
+        await interaction.editReply({ content: '✅ Ticket panel posted.' });
     }
 };
