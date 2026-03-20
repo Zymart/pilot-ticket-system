@@ -1,27 +1,43 @@
 const express = require('express');
 const config = require('./config');
 
-// Start bot
-require('./index.js');
-
 const app = express();
 
-app.get('/', (req, res) => {
+// Health check endpoint
+app.get('/health', (req, res) => {
     res.json({ 
-        status: 'Ticket Bot Online',
+        status: 'healthy',
         timestamp: new Date().toISOString(),
         uptime: process.uptime()
     });
 });
 
-app.get('/health', (req, res) => {
+app.get('/', (req, res) => {
     res.json({ 
-        status: 'healthy',
-        bot: client?.user?.tag || 'starting...'
+        status: 'Ticket Bot Online',
+        bot: client?.user?.tag || 'starting...',
+        timestamp: new Date().toISOString()
     });
 });
 
-app.listen(config.port, () => {
+// Start web server first
+const server = app.listen(config.port, () => {
     console.log(`Web server running on port ${config.port}`);
-    console.log(`Health check: http://localhost:${config.port}/health`);
 });
+
+// Then start bot
+let client;
+try {
+    const { Client, GatewayIntentBits } = require('discord.js');
+    client = new Client({
+        intents: [
+            GatewayIntentBits.Guilds,
+            GatewayIntentBits.GuildMessages,
+            GatewayIntentBits.GuildMembers
+        ]
+    });
+    
+    require('./index.js');
+} catch (err) {
+    console.error('Bot failed to start:', err);
+}
