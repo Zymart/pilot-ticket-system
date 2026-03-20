@@ -15,16 +15,13 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     async execute(interaction, { configManager }) {
-        // Check if in ticket channel
         if (!interaction.channel.name.startsWith('ticket-') && !interaction.channel.name.startsWith('closed-')) {
             return await interaction.editReply({
                 content: '❌ This command can only be used in ticket channels.'
             });
         }
 
-        // Check if already closed
         if (interaction.channel.name.startsWith('closed-')) {
-            // Show delete/transcript buttons only
             const actionRow = new ActionRowBuilder()
                 .addComponents(
                     new ButtonBuilder()
@@ -45,13 +42,19 @@ module.exports = {
                 .setColor(0xED4245)
                 .setTimestamp();
 
-            return await interaction.editReply({
+            const reply = await interaction.editReply({
                 embeds: [embed],
                 components: [actionRow]
             });
+
+            // Auto delete after 5 minutes
+            setTimeout(() => {
+                reply.delete().catch(() => {});
+            }, 300000);
+
+            return;
         }
 
-        // Close the ticket
         await interaction.channel.permissionOverwrites.set([
             { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] }
         ]);
@@ -59,23 +62,12 @@ module.exports = {
         const newName = `closed-${interaction.channel.name}`.slice(0, 100);
         await interaction.channel.setName(newName);
 
-        // Update JSONBin
         const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
         if (ticketEntry) {
             const [userId, ticketData] = ticketEntry;
-            if (ticketData.binId && !ticketData.binId.startsWith('fake-')) {
-                const jsonbin = require('../utils/jsonbin');
-                const data = await jsonbin.read(ticketData.binId) || {};
-                data.status = 'closed';
-                data.closedAt = new Date().toISOString();
-                data.closedBy = interaction.user.id;
-                data.closedByTag = interaction.user.tag;
-                await jsonbin.update(ticketData.binId, data);
-            }
             await configManager.closeTicket(userId, { ...ticketData, status: 'closed' });
         }
 
-        // Show delete/transcript buttons
         const actionRow = new ActionRowBuilder()
             .addComponents(
                 new ButtonBuilder()
@@ -96,10 +88,15 @@ module.exports = {
             .setColor(0xED4245)
             .setTimestamp();
 
-        await interaction.editReply({
+        const reply = await interaction.editReply({
             embeds: [embed],
             components: [actionRow]
         });
+
+        // Auto delete after 5 minutes
+        setTimeout(() => {
+            reply.delete().catch(() => {});
+        }, 300000);
 
         await interaction.channel.send({
             embeds: [{
