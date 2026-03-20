@@ -8,7 +8,6 @@ const {
     ButtonBuilder,
     ButtonStyle
 } = require('discord.js');
-const configManager = require('../utils/configManager');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -21,6 +20,16 @@ module.exports = {
         if (!interaction.channel.name.startsWith('ticket-') && !interaction.channel.name.startsWith('closed-')) {
             return await interaction.editReply({
                 content: '❌ This command can only be used inside ticket channels.'
+            });
+        }
+
+        // Get guild config
+        const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
+        
+        // Check if pilot_channel_id is set
+        if (!guildConfig?.pilotChannelId) {
+            return await interaction.editReply({
+                content: '❌ Pilot channel not configured. Use `/setup pilot_channel_id:YOUR_CHANNEL_ID` first.'
             });
         }
 
@@ -77,8 +86,8 @@ module.exports = {
             });
         }
 
-        // Get guild config for category
-        const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
+        // Get the pilot channel (category or parent channel)
+        const pilotChannel = interaction.guild.channels.cache.get(guildConfig.pilotChannelId);
         
         const channelOptions = {
             name: `pilotweb-${interaction.channel.name.replace('ticket-', '').replace('closed-', '').slice(0, 20)}`,
@@ -86,11 +95,13 @@ module.exports = {
             permissionOverwrites: permissionOverwrites
         };
 
-        if (guildConfig?.ticketCategoryId) {
-            const category = interaction.guild.channels.cache.get(guildConfig.ticketCategoryId);
-            if (category && category.type === ChannelType.GuildCategory) {
-                channelOptions.parent = guildConfig.ticketCategoryId;
-            }
+        // If pilotChannel is a category, use it as parent
+        if (pilotChannel && pilotChannel.type === ChannelType.GuildCategory) {
+            channelOptions.parent = guildConfig.pilotChannelId;
+        } 
+        // If pilotChannel is a text channel, use its parent category
+        else if (pilotChannel && pilotChannel.type === ChannelType.GuildText && pilotChannel.parentId) {
+            channelOptions.parent = pilotChannel.parentId;
         }
 
         try {
