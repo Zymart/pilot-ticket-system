@@ -8,8 +8,8 @@ const {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('info')
-        .setDescription('Show info about this pilotweb channel')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ViewChannel),
+        .setDescription('Show info about this pilotweb channel (Admin only)')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     async execute(interaction, { configManager }) {
         // Check if in pilotweb channel
@@ -59,12 +59,10 @@ module.exports = {
         // If found in memory
         if (ticketData) {
             infoEmbed.addFields(
-                { name: 'Ticket Owner', value: `<@${ticketOwner}> (${ticketData.userTag})`, inline: true },
-                { name: 'Roblox Username', value: ticketData.robloxUsername, inline: true },
+                { name: 'Username', value: ticketData.robloxUsername, inline: true },
                 { name: 'Item', value: item, inline: true },
-                { name: 'Buying', value: ticketData.buying || 'N/A', inline: true },
-                { name: 'Game', value: ticketData.game || 'N/A', inline: true },
-                { name: 'Created', value: `<t:${createdAt}:F>`, inline: false }
+                { name: 'Created', value: `<t:${createdAt}:F>`, inline: false },
+                { name: 'Ticket Owner', value: `<@${ticketOwner}> (${ticketData.userTag})`, inline: false }
             );
 
             if (ticketChannel) {
@@ -75,32 +73,32 @@ module.exports = {
             const messages = await interaction.channel.messages.fetch({ limit: 10 });
             const firstMessage = messages.last();
             
+            let discordOwner = null;
+            let robloxUser = username;
+            let itemValue = item;
+
             if (firstMessage && firstMessage.embeds.length > 0) {
                 const embed = firstMessage.embeds[0];
                 const ownerField = embed.fields?.find(f => f.name === 'Ticket Owner');
                 const robloxField = embed.fields?.find(f => f.name === 'Roblox User');
                 const itemField = embed.fields?.find(f => f.name === 'Item');
 
-                if (ownerField && robloxField && itemField) {
-                    infoEmbed.addFields(
-                        { name: 'Ticket Owner', value: ownerField.value, inline: true },
-                        { name: 'Roblox Username', value: robloxField.value, inline: true },
-                        { name: 'Item', value: itemField.value, inline: true },
-                        { name: 'Created', value: `<t:${createdAt}:F>`, inline: false }
-                    );
-                } else {
-                    infoEmbed.addFields(
-                        { name: 'Roblox Username', value: username, inline: true },
-                        { name: 'Item', value: item, inline: true },
-                        { name: 'Created', value: `<t:${createdAt}:F>`, inline: false }
-                    );
+                if (ownerField) {
+                    const match = ownerField.value.match(/<@(\d+)>/);
+                    discordOwner = match ? match[1] : null;
                 }
-            } else {
-                infoEmbed.addFields(
-                    { name: 'Roblox Username', value: username, inline: true },
-                    { name: 'Item', value: item, inline: true },
-                    { name: 'Created', value: `<t:${createdAt}:F>`, inline: false }
-                );
+                if (robloxField) robloxUser = robloxField.value;
+                if (itemField) itemValue = itemField.value;
+            }
+
+            infoEmbed.addFields(
+                { name: 'Username', value: robloxUser, inline: true },
+                { name: 'Item', value: itemValue, inline: true },
+                { name: 'Created', value: `<t:${createdAt}:F>`, inline: false }
+            );
+
+            if (discordOwner) {
+                infoEmbed.addFields({ name: 'Ticket Owner', value: `<@${discordOwner}>`, inline: false });
             }
         }
 
