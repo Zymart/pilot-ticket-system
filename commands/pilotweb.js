@@ -42,41 +42,38 @@ module.exports = {
         // Get item from command
         const item = interaction.options.getString('item');
         
-        // Get ticket data to find username
+        // Get ticket data to find username and owner
         const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
         const ticketData = ticketEntry ? ticketEntry[1] : null;
         const username = ticketData?.robloxUsername || 'unknown';
-        
+        const discordUserId = ticketData?.userId || interaction.user.id;
+        const discordUserTag = ticketData?.userTag || interaction.user.tag;
+
         // Clean names for channel
         const cleanUser = username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
         const cleanItem = item.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
         const channelName = `${cleanUser}-${cleanItem}`;
 
-        // Get ALL members who can see this channel (not just from cache)
+        // Get ALL members who can see this channel
         await interaction.channel.fetch();
         const allowedUsers = [];
         const allowedRoles = [];
 
         for (const [id, perm] of interaction.channel.permissionOverwrites.cache) {
-            // Skip @everyone (guild id)
             if (id === interaction.guild.id) continue;
             
-            // If it's a user and they can view channel
             if (perm.allow.has(PermissionFlagsBits.ViewChannel)) {
                 allowedUsers.push(id);
             }
-            // If it's a role
             else if (perm.type === 0 && perm.allow.has(PermissionFlagsBits.ViewChannel)) {
                 allowedRoles.push(id);
             }
         }
 
-        // Always include command user
         if (!allowedUsers.includes(interaction.user.id)) {
             allowedUsers.push(interaction.user.id);
         }
 
-        // Create permission overwrites
         const permissionOverwrites = [
             {
                 id: interaction.guild.id,
@@ -84,7 +81,6 @@ module.exports = {
             }
         ];
 
-        // Add all users from ticket
         for (const userId of allowedUsers) {
             permissionOverwrites.push({
                 id: userId,
@@ -97,7 +93,6 @@ module.exports = {
             });
         }
 
-        // Add all roles from ticket
         for (const roleId of allowedRoles) {
             permissionOverwrites.push({
                 id: roleId,
@@ -109,7 +104,6 @@ module.exports = {
             });
         }
 
-        // Verify pilot channel is a category
         const pilotCategory = interaction.guild.channels.cache.get(guildConfig.pilotChannelId);
         if (!pilotCategory || pilotCategory.type !== ChannelType.GuildCategory) {
             return await interaction.editReply({
@@ -133,14 +127,25 @@ module.exports = {
                 avatar: interaction.client.user.displayAvatarURL()
             });
 
-            const webhookEmbed = new EmbedBuilder()
-                .setTitle('🔗 Pilot Web Channel Created')
-                .setDescription(`Item: **${item}** | User: **${username}**`)
+            // First message with all info
+            const infoEmbed = new EmbedBuilder()
+                .setTitle('📦 New Web Channel')
                 .addFields(
-                    { name: 'Webhook URL', value: `\`${webhook.url}\`` },
-                    { name: 'Channel', value: `${webChannel}` }
+                    { name: 'Discord Owner', value: `<@${discordUserId}> (${discordUserTag})`, inline: true },
+                    { name: 'Roblox User', value: username, inline: true },
+                    { name: 'Item', value: item, inline: true }
                 )
                 .setColor(0x5865F2)
+                .setTimestamp();
+
+            // Webhook embed
+            const webhookEmbed = new EmbedBuilder()
+                .setTitle('🔗 Webhook Ready')
+                .setDescription('Use this webhook URL to send messages from external services.')
+                .addFields(
+                    { name: 'Channel', value: `${webChannel}` }
+                )
+                .setColor(0x57F287)
                 .setTimestamp();
 
             const copyRow = new ActionRowBuilder()
@@ -153,13 +158,13 @@ module.exports = {
                 );
 
             await webChannel.send({
-                content: `Web channel created for **${username}** - **${item}**`,
-                embeds: [webhookEmbed],
+                content: `Web channel created for **${discordUserTag}**`,
+                embeds: [infoEmbed, webhookEmbed],
                 components: [copyRow]
             });
 
             await interaction.editReply({
-                content: `✅ Web channel created: ${webChannel}\n**User:** ${username}\n**Item:** ${item}`
+                content: `✅ Web channel created: ${webChannel}\n**Discord:** ${discordUserTag}\n**Roblox:** ${username}\n**Item:** ${item}`
             });
 
         } catch (err) {
