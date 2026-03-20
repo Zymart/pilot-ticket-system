@@ -1,35 +1,30 @@
-const jsonbin = require('./jsonbin');
 const fs = require('fs');
 const path = require('path');
+const jsonbin = require('./jsonbin');
 
-// Use /tmp for Render (persists better) or current directory
-const DATA_DIR = process.env.RENDER ? '/tmp' : __dirname + '/..';
-const BIN_ID_FILE = path.join(DATA_DIR, '.bin_id');
-const LOCAL_FILE = path.join(DATA_DIR, 'data.json');
+// HARDCODE YOUR BIN ID HERE AFTER CREATING IT MANUALLY
+const HARDCODED_BIN_ID = ''; // Paste your bin ID here, e.g., '65f1234567890abcdef12345'
+
+// Fallback file if JSONBin fails
+const FILE = path.join(__dirname, '..', 'data.json');
 
 class ConfigManager {
     constructor() {
         this.configs = new Map();
         this.tickets = new Map();
-        this.binId = null;
-        this.useFile = false;
+        this.binId = HARDCODED_BIN_ID || null;
     }
 
     async init() {
-        // Try to load existing bin ID
-        if (fs.existsSync(BIN_ID_FILE)) {
-            this.binId = fs.readFileSync(BIN_ID_FILE, 'utf8').trim();
-            console.log('Loaded bin ID:', this.binId);
-            
-            // Test if bin exists
-            const test = await jsonbin.read(this.binId);
-            if (!test) {
-                console.log('Bin not found, will create new');
-                this.binId = null;
+        // If no hardcoded ID, try to load from file or create new
+        if (!this.binId) {
+            if (fs.existsSync(FILE)) {
+                const saved = JSON.parse(fs.readFileSync(FILE));
+                this.binId = saved.binId || null;
             }
         }
 
-        // Create new bin if needed
+        // If still no ID, create new bin once
         if (!this.binId) {
             this.binId = await jsonbin.create({
                 type: 'ticket-bot',
@@ -39,25 +34,22 @@ class ConfigManager {
             });
             
             if (this.binId && !this.binId.startsWith('fake-')) {
-                fs.writeFileSync(BIN_ID_FILE, this.binId);
+                fs.writeFileSync(FILE, JSON.stringify({ binId: this.binId }));
                 console.log('Created new bin:', this.binId);
-            } else {
-                console.log('JSONBin failed, using local file');
-                this.useFile = true;
+                console.log('SAVE THIS ID AND HARDCODE IT:', this.binId);
             }
         }
 
-        // Load data
         await this.load();
     }
 
     async load() {
-        if (this.useFile) {
+        if (!this.binId || this.binId.startsWith('fake-')) {
             // Load from local file
-            if (fs.existsSync(LOCAL_FILE)) {
-                const data = JSON.parse(fs.readFileSync(LOCAL_FILE));
-                Object.entries(data.guilds || {}).forEach(([k, v]) => this.configs.set(k, v));
-                Object.entries(data.tickets || {}).forEach(([k, v]) => this.tickets.set(k, v));
+            if (fs.existsSync(FILE)) {
+                const d = JSON.parse(fs.readFileSync(FILE));
+                Object.entries(d.guilds || {}).forEach(([k,v]) => this.configs.set(k,v));
+                Object.entries(d.tickets || {}).forEach(([k,v]) => this.tickets.set(k,v));
             }
             console.log(`Loaded from file: ${this.configs.size} configs, ${this.tickets.size} tickets`);
             return;
@@ -66,9 +58,11 @@ class ConfigManager {
         // Load from JSONBin
         const data = await jsonbin.read(this.binId);
         if (data) {
-            Object.entries(data.guilds || {}).forEach(([k, v]) => this.configs.set(k, v));
-            Object.entries(data.tickets || {}).forEach(([k, v]) => this.tickets.set(k, v));
+            Object.entries(data.guilds || {}).forEach(([k,v]) => this.configs.set(k,v));
+            Object.entries(data.tickets || {}).forEach(([k,v]) => this.tickets.set(k,v));
             console.log(`Loaded from JSONBin: ${this.configs.size} configs, ${this.tickets.size} tickets`);
+        } else {
+            console.log('Bin empty or not found');
         }
     }
 
@@ -79,36 +73,39 @@ class ConfigManager {
             updated: new Date().toISOString()
         };
 
-        if (this.useFile) {
-            fs.writeFileSync(LOCAL_FILE, JSON.stringify(data, null, 2));
+        if (!this.binId || this.binId.startsWith('fake-')) {
+            // Save to local file
+            const fileData = { ...data, binId: this.binId };
+            fs.writeFileSync(FILE, JSON.stringify(fileData, null, 2));
             console.log('Saved to file');
             return;
         }
 
-        // Update existing bin (don't create new!)
+        // Update existing bin (never create new)
         const success = await jsonbin.update(this.binId, data);
         if (success) {
             console.log('Saved to JSONBin');
         } else {
-            console.error('Failed to save to JSONBin');
             // Fallback to file
-            this.useFile = true;
-            fs.writeFileSync(LOCAL_FILE, JSON.stringify(data, null, 2));
+            fs.writeFileSync(FILE, JSON.stringify({ ...data, binId: this.binId }, null, 2));
+            console.log('JSONBin failed, saved to file');
         }
     }
 
-    // Public methods
     async getGuildConfig(guildId) {
         return this.configs.get(guildId) || null;
     }
 
     async saveGuildConfig(guildId, config) {
-        this.configs.set(guildId, config);
+        this.configs.set(guildId, {
+            ...config,
+            updatedAt: new Date().toISOString()
+        });
         await this.save();
     }
 
-    async saveTicket(userId, ticket) {
-        this.tickets.set(userId, ticket);
+    async saveTicket(userId, ticketData) {
+        this.tickets.set(userId, ticketData);
         await this.save();
     }
 
@@ -118,16 +115,14 @@ class ConfigManager {
     }
 
     getTicket(userId) {
-        return this.tickets.get(userId);
+        return this.tickets.get(userId) || null;
     }
 
     hasTicket(userId) {
         return this.tickets.has(userId);
     }
 
-    async loadAllTickets() {
-        // Already loaded
-    }
+    async loadAllTickets() {}
 }
 
 module.exports = new ConfigManager();
