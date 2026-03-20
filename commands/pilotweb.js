@@ -38,9 +38,15 @@ module.exports = {
 
         const item = interaction.options.getString('item');
         
+        // Get username from channel name since ticket data might not be in memory
+        const channelNameParts = interaction.channel.name.replace('ticket-', '').replace('closed-', '').split('-');
+        const usernameFromChannel = channelNameParts[0] || 'unknown';
+        
+        // Try to get from memory first
         const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
         const ticketData = ticketEntry ? ticketEntry[1] : null;
-        const username = ticketData?.robloxUsername || 'unknown';
+        
+        const username = ticketData?.robloxUsername || usernameFromChannel;
         const discordUserId = ticketData?.userId || interaction.user.id;
         const discordUserTag = ticketData?.userTag || interaction.user.tag;
 
@@ -48,8 +54,7 @@ module.exports = {
         const cleanItem = item.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
         const channelName = `${cleanUser}-${cleanItem}`;
 
-        await interaction.channel.fetch();
-        
+        // Build permission overwrites by copying from ticket channel
         const permissionOverwrites = [
             {
                 id: interaction.guild.id,
@@ -57,88 +62,42 @@ module.exports = {
             }
         ];
 
-        // Get all permission overwrites from ticket channel and copy them
+        // Copy all permissions from ticket channel
         for (const [id, perm] of interaction.channel.permissionOverwrites.cache) {
             if (id === interaction.guild.id) continue;
             
             if (perm.allow.has(PermissionFlagsBits.ViewChannel)) {
-                // Check if it's a role
-                const role = interaction.guild.roles.cache.get(id);
-                if (role) {
+                const isRole = interaction.guild.roles.cache.has(id);
+                
+                permissionOverwrites.push({
+                    id: id,
+                    type: isRole ? 0 : 1,
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ReadMessageHistory,
+                        PermissionFlagsBits.AttachFiles
+                    ]
+                });
+            }
+        }
+
+        // Add support roles
+        if (guildConfig?.supportRoleIds?.length > 0) {
+            for (const roleId of guildConfig.supportRoleIds) {
+                const alreadyAdded = permissionOverwrites.some(p => p.id === roleId);
+                if (!alreadyAdded) {
                     permissionOverwrites.push({
-                        id: id,
-                        type: 0, // role
+                        id: roleId,
+                        type: 0,
                         allow: [
                             PermissionFlagsBits.ViewChannel,
                             PermissionFlagsBits.SendMessages,
                             PermissionFlagsBits.ReadMessageHistory
                         ]
                     });
-                } else {
-                    // It's a user - use type 1
-                    permissionOverwrites.push({
-                        id: id,
-                        type: 1, // member
-                        allow: [
-                            PermissionFlagsBits.ViewChannel,
-                            PermissionFlagsBits.SendMessages,
-                            PermissionFlagsBits.ReadMessageHistory,
-                            PermissionFlagsBits.AttachFiles
-                        ]
-                    });
                 }
             }
-        }
-
-        // Add support roles from config
-        if (guildConfig?.supportRoleIds?.length > 0) {
-            for (const roleId of guildConfig.supportRoleIds) {
-                const role = interaction.guild.roles.cache.get(roleId);
-                if (role) {
-                    const alreadyAdded = permissionOverwrites.some(p => p.id === roleId);
-                    if (!alreadyAdded) {
-                        permissionOverwrites.push({
-                            id: roleId,
-                            type: 0,
-                            allow: [
-                                PermissionFlagsBits.ViewChannel,
-                                PermissionFlagsBits.SendMessages,
-                                PermissionFlagsBits.ReadMessageHistory
-                            ]
-                        });
-                    }
-                }
-            }
-        }
-
-        // Ensure ticket owner is added
-        const ownerAdded = permissionOverwrites.some(p => p.id === discordUserId);
-        if (!ownerAdded) {
-            permissionOverwrites.push({
-                id: discordUserId,
-                type: 1,
-                allow: [
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.SendMessages,
-                    PermissionFlagsBits.ReadMessageHistory,
-                    PermissionFlagsBits.AttachFiles
-                ]
-            });
-        }
-
-        // Ensure command user is added
-        const userAdded = permissionOverwrites.some(p => p.id === interaction.user.id);
-        if (!userAdded) {
-            permissionOverwrites.push({
-                id: interaction.user.id,
-                type: 1,
-                allow: [
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.SendMessages,
-                    PermissionFlagsBits.ReadMessageHistory,
-                    PermissionFlagsBits.AttachFiles
-                ]
-            });
         }
 
         const pilotCategory = interaction.guild.channels.cache.get(guildConfig.pilotChannelId);
