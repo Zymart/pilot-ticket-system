@@ -103,9 +103,6 @@ module.exports = {
 
         const reply = await interaction.editReply({ embeds: [infoEmbed] });
         
-        // Auto delete after 2 minutes
-        setTimeout(() => {
-            reply.delete().catch(() => {});
-        }, 120000);
+        setTimeout(() => reply.delete().catch(() => {}), 120000);
     }
 };
