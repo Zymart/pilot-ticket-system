@@ -25,8 +25,8 @@ const GUILD_CONFIG_PATH = path.join(__dirname, 'guildConfig.json');
 
 function getGuildConfig(guildId) {
     if (!fs.existsSync(GUILD_CONFIG_PATH)) return null;
-    const config = JSON.parse(fs.readFileSync(GUILD_CONFIG_PATH, 'utf8'));
-    return config[guildId] || null;
+    const cfg = JSON.parse(fs.readFileSync(GUILD_CONFIG_PATH, 'utf8'));
+    return cfg[guildId] || null;
 }
 
 const client = new Client({
@@ -168,15 +168,17 @@ client.on(Events.InteractionCreate, async interaction => {
                     channelOptions.parent = guildConfig.ticketCategoryId;
                 }
 
-                if (guildConfig?.supportRoleId) {
-                    channelOptions.permissionOverwrites.push({
-                        id: guildConfig.supportRoleId,
-                        allow: [
-                            PermissionFlagsBits.ViewChannel,
-                            PermissionFlagsBits.SendMessages,
-                            PermissionFlagsBits.ReadMessageHistory
-                        ]
-                    });
+                if (guildConfig?.supportRoleIds?.length > 0) {
+                    for (const roleId of guildConfig.supportRoleIds) {
+                        channelOptions.permissionOverwrites.push({
+                            id: roleId,
+                            allow: [
+                                PermissionFlagsBits.ViewChannel,
+                                PermissionFlagsBits.SendMessages,
+                                PermissionFlagsBits.ReadMessageHistory
+                            ]
+                        });
+                    }
                 }
 
                 const ticketChannel = await interaction.guild.channels.create(channelOptions);
