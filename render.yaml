@@ -1,5 +1,4 @@
 services:
-  # Main bot service
   - type: web
     name: ticket-bot
     runtime: node
@@ -20,7 +19,6 @@ services:
       - key: JSONBIN_MASTER_KEY
         sync: false
 
-  # Cron job to keep alive (every 10 minutes)
   - type: cron
     name: ticket-bot-ping
     runtime: node
