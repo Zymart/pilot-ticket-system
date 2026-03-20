@@ -20,14 +20,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const jsonbin = require('./utils/jsonbin');
-
-const GUILD_CONFIG_PATH = path.join(__dirname, 'guildConfig.json');
-
-function getGuildConfig(guildId) {
-    if (!fs.existsSync(GUILD_CONFIG_PATH)) return null;
-    const cfg = JSON.parse(fs.readFileSync(GUILD_CONFIG_PATH, 'utf8'));
-    return cfg[guildId] || null;
-}
+const configManager = require('./utils/configManager');
 
 const client = new Client({
     intents: [
@@ -39,6 +32,7 @@ const client = new Client({
 
 client.commands = new Collection();
 
+// AUTO-LOAD ALL COMMANDS
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 const commands = [];
@@ -48,8 +42,10 @@ for (const file of commandFiles) {
     const command = require(filePath);
     client.commands.set(command.data.name, command);
     commands.push(command.data.toJSON());
+    console.log(`Loaded command: ${command.data.name}`);
 }
 
+// DEPLOY COMMANDS
 if (process.env.NODE_ENV === 'production') {
     const rest = new REST({ version: '10' }).setToken(config.token);
     (async () => {
@@ -66,14 +62,21 @@ if (process.env.NODE_ENV === 'production') {
     })();
 }
 
-client.once(Events.ClientReady, () => {
+// BOT READY - LOAD ALL DATA
+client.once(Events.ClientReady, async () => {
     console.log(`Bot ready: ${client.user.tag}`);
+    
+    // Init config manager and load all tickets
+    await configManager.init();
+    await configManager.loadAllTickets();
+    
+    console.log(`Bot fully initialized with ${client.commands.size} commands`);
 });
 
-const userTickets = new Map();
-
+// INTERACTION HANDLER
 client.on(Events.InteractionCreate, async interaction => {
     try {
+        // SLASH COMMANDS - AUTO HANDLED
         if (interaction.isChatInputCommand()) {
             const cmd = client.commands.get(interaction.commandName);
             if (!cmd) return;
@@ -81,14 +84,17 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
-                await cmd.execute(interaction);
+                // Inject configManager into command context
+                await cmd.execute(interaction, { configManager });
             } catch (e) {
                 console.error(e);
                 await interaction.editReply({ content: '❌ Error executing command.' });
             }
         }
+        
+        // CREATE TICKET BUTTON
         else if (interaction.isButton() && interaction.customId === 'create_ticket') {
-            if (userTickets.has(interaction.user.id)) {
+            if (configManager.hasTicket(interaction.user.id)) {
                 return interaction.reply({
                     content: '❌ You already have an open ticket. Close it first.',
                     flags: MessageFlags.Ephemeral
@@ -131,6 +137,8 @@ client.on(Events.InteractionCreate, async interaction => {
 
             await interaction.showModal(modal);
         }
+        
+        // MODAL SUBMIT - CREATE TICKET
         else if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -142,7 +150,8 @@ client.on(Events.InteractionCreate, async interaction => {
             const channelName = `ticket-${cleanName}-${Math.floor(Math.random()*99)}`;
 
             try {
-                const guildConfig = getGuildConfig(interaction.guild.id);
+                // AUTO-LOAD GUILD CONFIG
+                const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
                 
                 const permissionOverwrites = [
                     {
@@ -160,6 +169,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     }
                 ];
 
+                // AUTO-ADD SUPPORT ROLES FROM CONFIG
                 if (guildConfig?.supportRoleIds?.length > 0) {
                     for (const roleId of guildConfig.supportRoleIds) {
                         const role = interaction.guild.roles.cache.get(roleId);
@@ -172,8 +182,6 @@ client.on(Events.InteractionCreate, async interaction => {
                                     PermissionFlagsBits.ReadMessageHistory
                                 ]
                             });
-                        } else {
-                            console.warn(`Role ${roleId} not found in guild cache`);
                         }
                     }
                 }
@@ -184,17 +192,17 @@ client.on(Events.InteractionCreate, async interaction => {
                     permissionOverwrites: permissionOverwrites
                 };
 
+                // AUTO-SET CATEGORY FROM CONFIG
                 if (guildConfig?.ticketCategoryId) {
                     const category = interaction.guild.channels.cache.get(guildConfig.ticketCategoryId);
                     if (category && category.type === ChannelType.GuildCategory) {
                         channelOptions.parent = guildConfig.ticketCategoryId;
-                    } else {
-                        console.warn(`Category ${guildConfig.ticketCategoryId} not found`);
                     }
                 }
 
                 const ticketChannel = await interaction.guild.channels.create(channelOptions);
 
+                // SAVE TO JSONBIN
                 const ticketData = {
                     userId: interaction.user.id,
                     userTag: interaction.user.tag,
@@ -208,7 +216,13 @@ client.on(Events.InteractionCreate, async interaction => {
                 };
 
                 const binId = await jsonbin.create(ticketData);
-                userTickets.set(interaction.user.id, { channelId: ticketChannel.id, binId });
+                
+                // AUTO-SAVE TO CONFIG MANAGER
+                await configManager.saveTicket(interaction.user.id, { 
+                    channelId: ticketChannel.id, 
+                    binId,
+                    ...ticketData
+                });
 
                 const infoEmbed = new EmbedBuilder()
                     .setTitle('🎫 New Ticket')
@@ -245,6 +259,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 await interaction.editReply({ content: '❌ Failed to create ticket. Check bot permissions.' });
             }
         }
+        
+        // CLOSE TICKET BUTTON
         else if (interaction.isButton() && interaction.customId.startsWith('close_')) {
             const binId = interaction.customId.replace('close_', '');
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -254,10 +270,17 @@ client.on(Events.InteractionCreate, async interaction => {
                 data.status = 'closed';
                 data.closedAt = new Date().toISOString();
                 data.closedBy = interaction.user.id;
+                data.closedByTag = interaction.user.tag;
                 await jsonbin.update(binId, data);
 
-                const entry = Array.from(userTickets.entries()).find(([k, v]) => v.binId === binId);
-                if (entry) userTickets.delete(entry[0]);
+                // AUTO-REMOVE FROM CONFIG MANAGER
+                const ticket = configManager.getTicket(interaction.user.id) || 
+                    Array.from(configManager.tickets.entries()).find(([k, v]) => v.binId === binId);
+                
+                if (ticket) {
+                    const userId = Array.isArray(ticket) ? ticket[0] : interaction.user.id;
+                    await configManager.closeTicket(userId, data);
+                }
 
                 await interaction.channel.permissionOverwrites.set([
                     { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] }
