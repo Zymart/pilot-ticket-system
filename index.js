@@ -144,40 +144,52 @@ client.on(Events.InteractionCreate, async interaction => {
             try {
                 const guildConfig = getGuildConfig(interaction.guild.id);
                 
-                const channelOptions = {
-                    name: channelName,
-                    type: ChannelType.GuildText,
-                    permissionOverwrites: [
-                        {
-                            id: interaction.guild.id,
-                            deny: [PermissionFlagsBits.ViewChannel]
-                        },
-                        {
-                            id: interaction.user.id,
-                            allow: [
-                                PermissionFlagsBits.ViewChannel,
-                                PermissionFlagsBits.SendMessages,
-                                PermissionFlagsBits.ReadMessageHistory,
-                                PermissionFlagsBits.AttachFiles
-                            ]
-                        }
-                    ]
-                };
-
-                if (guildConfig?.ticketCategoryId) {
-                    channelOptions.parent = guildConfig.ticketCategoryId;
-                }
+                const permissionOverwrites = [
+                    {
+                        id: interaction.guild.id,
+                        deny: [PermissionFlagsBits.ViewChannel]
+                    },
+                    {
+                        id: interaction.user.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory,
+                            PermissionFlagsBits.AttachFiles
+                        ]
+                    }
+                ];
 
                 if (guildConfig?.supportRoleIds?.length > 0) {
                     for (const roleId of guildConfig.supportRoleIds) {
-                        channelOptions.permissionOverwrites.push({
-                            id: roleId,
-                            allow: [
-                                PermissionFlagsBits.ViewChannel,
-                                PermissionFlagsBits.SendMessages,
-                                PermissionFlagsBits.ReadMessageHistory
-                            ]
-                        });
+                        const role = interaction.guild.roles.cache.get(roleId);
+                        if (role) {
+                            permissionOverwrites.push({
+                                id: roleId,
+                                allow: [
+                                    PermissionFlagsBits.ViewChannel,
+                                    PermissionFlagsBits.SendMessages,
+                                    PermissionFlagsBits.ReadMessageHistory
+                                ]
+                            });
+                        } else {
+                            console.warn(`Role ${roleId} not found in guild cache`);
+                        }
+                    }
+                }
+
+                const channelOptions = {
+                    name: channelName,
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: permissionOverwrites
+                };
+
+                if (guildConfig?.ticketCategoryId) {
+                    const category = interaction.guild.channels.cache.get(guildConfig.ticketCategoryId);
+                    if (category && category.type === ChannelType.GuildCategory) {
+                        channelOptions.parent = guildConfig.ticketCategoryId;
+                    } else {
+                        console.warn(`Category ${guildConfig.ticketCategoryId} not found`);
                     }
                 }
 
