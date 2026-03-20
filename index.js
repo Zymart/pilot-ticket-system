@@ -1,12 +1,13 @@
-const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes, Events } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const config = require('./config.json');
+const config = require('./config');
 
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildMembers
     ]
 });
 
@@ -25,37 +26,56 @@ for (const file of commandFiles) {
     commands.push(command.data.toJSON());
 }
 
-// Deploy slash commands
-const rest = new REST({ version: '10' }).setToken(config.token);
+// Deploy commands on startup (only in production)
+if (process.env.NODE_ENV === 'production') {
+    const rest = new REST({ version: '10' }).setToken(config.token);
+    (async () => {
+        try {
+            console.log('Deploying commands...');
+            await rest.put(
+                Routes.applicationGuildCommands(config.clientId, config.guildId),
+                { body: commands }
+            );
+            console.log('Commands deployed.');
+        } catch (error) {
+            console.error('Deploy failed:', error);
+        }
+    })();
+}
 
-(async () => {
-    try {
-        console.log('Deploying slash commands...');
-        await rest.put(
-            Routes.applicationGuildCommands(config.clientId, config.guildId),
-            { body: commands }
-        );
-        console.log('Slash commands deployed.');
-    } catch (error) {
-        console.error(error);
-    }
-})();
-
-client.once('ready', () => {
-    console.log(`Bot logged in as ${client.user.tag}`);
+client.once(Events.ClientReady, () => {
+    console.log(`Bot ready: ${client.user.tag}`);
 });
 
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand()) return;
+client.on(Events.InteractionCreate, async interaction => {
+    // Slash commands
+    if (interaction.isChatInputCommand()) {
+        const command = client.commands.get(interaction.commandName);
+        if (!command) return;
 
-    const command = client.commands.get(interaction.commandName);
-    if (!command) return;
+        try {
+            await command.execute(interaction, client);
+        } catch (error) {
+            console.error(error);
+            await interaction.reply({ 
+                content: 'Error executing command.', 
+                ephemeral: true 
+            }).catch(() => {});
+        }
+    }
 
-    try {
-        await command.execute(interaction);
-    } catch (error) {
-        console.error(error);
-        await interaction.reply({ content: 'Error executing command.', ephemeral: true });
+    // Modal submissions
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId === 'ticketModal') {
+            const title = interaction.fields.getTextInputValue('ticketTitle');
+            const message = interaction.fields.getTextInputValue('ticketMessage');
+
+            // For now, just confirm receipt
+            await interaction.reply({
+                content: `**Ticket Received**\n**Title:** ${title}\n**Message:** ${message}`,
+                ephemeral: true
+            });
+        }
     }
 });
 
