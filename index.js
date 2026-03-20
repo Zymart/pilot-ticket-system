@@ -220,7 +220,7 @@ client.on(Events.InteractionCreate, async interaction => {
                         { name: 'Roblox User', value: robloxUser, inline: true },
                         { name: 'Buying', value: buying, inline: true },
                         { name: 'Game', value: game, inline: true },
-                        { name: 'Discord', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: false }
+                        { name: 'Ticket Owner', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: false }
                     )
                     .setColor(0x5865F2)
                     .setTimestamp();
@@ -234,8 +234,15 @@ client.on(Events.InteractionCreate, async interaction => {
                             .setEmoji('🔒')
                     );
 
+                // Build ping mentions
+                let pingContent = `<@${interaction.user.id}>`;
+                if (guildConfig?.supportRoleIds?.length > 0) {
+                    const roleMentions = guildConfig.supportRoleIds.map(id => `<@&${id}>`).join(' ');
+                    pingContent += ` ${roleMentions}`;
+                }
+
                 await ticketChannel.send({
-                    content: `<@${interaction.user.id}>`,
+                    content: pingContent,
                     embeds: [infoEmbed],
                     components: [closeRow]
                 });
