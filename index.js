@@ -61,23 +61,20 @@ if (process.env.NODE_ENV === 'production') {
     })();
 }
 
-client.once(Events.ClientReady, async () => {
+client.once(Events.ClientReady, () => {
     console.log(`Bot ready: ${client.user.tag}`);
     configManager.init();
     console.log(`Bot ready with ${client.commands.size} commands`);
 });
 
-// AUTO DELETE FUNCTION
 async function autoDeleteMessage(message, delayMs = 60000) {
-    // Don't delete if it has specific components we want to keep
     if (message.components?.length > 0) {
         const hasTicketButton = message.components.some(row => 
             row.components.some(btn => btn.customId === 'create_ticket')
         );
-        if (hasTicketButton) return; // Keep /ticket panel
+        if (hasTicketButton) return;
     }
     
-    // Don't delete pilotweb first message (has specific embed title)
     if (message.embeds?.length > 0) {
         const isPilotwebInfo = message.embeds.some(e => 
             e.title === '📦 New Web Channel' || e.title === '📋 Channel Info'
@@ -101,7 +98,6 @@ client.on(Events.InteractionCreate, async interaction => {
             try {
                 await cmd.execute(interaction, { configManager });
                 
-                // Auto delete command reply after 2 minutes (except for setup/ticket)
                 if (!['setup', 'ticket'].includes(interaction.commandName)) {
                     const reply = await interaction.fetchReply();
                     autoDeleteMessage(reply, 120000);
@@ -252,7 +248,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     pingContent += ` ${roleMentions}`;
                 }
 
-                const ticketMessage = await ticketChannel.send({
+                await ticketChannel.send({
                     content: pingContent,
                     embeds: [infoEmbed],
                     components: [closeRow]
@@ -305,7 +301,6 @@ client.on(Events.InteractionCreate, async interaction => {
                     components: [actionRow]
                 });
 
-                // Auto delete the close message after 5 minutes
                 autoDeleteMessage(closeMsg, 300000);
 
                 await interaction.channel.send({
@@ -371,7 +366,6 @@ client.on(Events.InteractionCreate, async interaction => {
                     files: [attachment]
                 });
 
-                // Auto delete after 2 minutes
                 autoDeleteMessage(reply, 120000);
 
             } catch (err) {
@@ -431,7 +425,6 @@ client.on(Events.InteractionCreate, async interaction => {
                         content: `📋 **Click to copy:**\n\`\`\`${webhook.url}\`\`\``
                     });
                     
-                    // Auto delete after 1 minute
                     autoDeleteMessage(reply, 60000);
                 } else {
                     await interaction.editReply({ content: '❌ Webhook not found.' });
