@@ -64,8 +64,6 @@ module.exports = {
         if (supportRoleIds) replyContent += `\n**Support Roles:** ${supportRoleIds}`;
         if (logChannelId) replyContent += `\n**Log Channel:** \`${logChannelId}\``;
 
-        const reply = await interaction.editReply({ content: replyContent });
-        
-        // Setup is important - don't auto delete
+        await interaction.editReply({ content: replyContent });
     }
 };
