@@ -4,19 +4,6 @@ const {
     MessageFlags,
     ChannelType
 } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
-
-const CONFIG_PATH = path.join(__dirname, '..', 'guildConfig.json');
-
-function loadConfig() {
-    if (!fs.existsSync(CONFIG_PATH)) return {};
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-}
-
-function saveConfig(config) {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-}
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -42,7 +29,7 @@ module.exports = {
                 .setRequired(false)
         ),
 
-    async execute(interaction) {
+    async execute(interaction, { configManager }) {
         const categoryId = interaction.options.getString('ticket_category_id');
         const supportRoleIds = interaction.options.getString('support_role_ids');
         const logChannelId = interaction.options.getString('log_channel_id');
@@ -54,22 +41,21 @@ module.exports = {
             });
         }
 
-        const config = loadConfig();
-        config[interaction.guild.id] = {
+        const guildConfig = {
             ticketCategoryId: categoryId,
             supportRoleIds: supportRoleIds ? supportRoleIds.split(',').map(id => id.trim()) : [],
             logChannelId: logChannelId || null,
-            updatedAt: new Date().toISOString(),
-            updatedBy: interaction.user.id
+            updatedBy: interaction.user.id,
+            updatedByTag: interaction.user.tag
         };
-        saveConfig(config);
+
+        // AUTO-SAVE TO JSONBIN
+        await configManager.saveGuildConfig(interaction.guild.id, guildConfig);
 
         let replyContent = `✅ **Setup complete!**\n\n**Ticket Category:** ${category.name} (\`${categoryId}\`)`;
         if (supportRoleIds) replyContent += `\n**Support Roles:** ${supportRoleIds}`;
         if (logChannelId) replyContent += `\n**Log Channel:** \`${logChannelId}\``;
 
-        await interaction.editReply({
-            content: replyContent
-        });
+        await interaction.editReply({ content: replyContent });
     }
 };
