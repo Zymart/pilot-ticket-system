@@ -1,4 +1,15 @@
-const { Client, GatewayIntentBits, Collection, REST, Routes, Events } = require('discord.js');
+const { 
+    Client, 
+    GatewayIntentBits, 
+    Collection, 
+    REST, 
+    Routes, 
+    Events,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    ActionRowBuilder
+} = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -16,7 +27,6 @@ client.commands = new Collection();
 // Load commands
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-
 const commands = [];
 
 for (const file of commandFiles) {
@@ -26,7 +36,7 @@ for (const file of commandFiles) {
     commands.push(command.data.toJSON());
 }
 
-// Deploy commands on startup (only in production)
+// Deploy commands
 if (process.env.NODE_ENV === 'production') {
     const rest = new REST({ version: '10' }).setToken(config.token);
     (async () => {
@@ -64,15 +74,59 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
+    // Button clicks
+    if (interaction.isButton()) {
+        if (interaction.customId.startsWith('ticket_create_')) {
+            // Get button label from the clicked button
+            const buttonLabel = interaction.component.label;
+            
+            // Create modal
+            const modal = new ModalBuilder()
+                .setCustomId(`ticket_modal_${interaction.customId}`)
+                .setTitle(`Ticket: ${buttonLabel}`);
+
+            const titleInput = new TextInputBuilder()
+                .setCustomId('ticketTitle')
+                .setLabel('Subject')
+                .setPlaceholder('Brief summary...')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(100);
+
+            const messageInput = new TextInputBuilder()
+                .setCustomId('ticketMessage')
+                .setLabel('Details')
+                .setPlaceholder('Describe your issue in detail...')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(1000);
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(titleInput),
+                new ActionRowBuilder().addComponents(messageInput)
+            );
+
+            await interaction.showModal(modal);
+        }
+    }
+
     // Modal submissions
     if (interaction.isModalSubmit()) {
-        if (interaction.customId === 'ticketModal') {
+        if (interaction.customId.startsWith('ticket_modal_')) {
             const title = interaction.fields.getTextInputValue('ticketTitle');
             const message = interaction.fields.getTextInputValue('ticketMessage');
+            const buttonType = interaction.customId.replace('ticket_modal_ticket_create_', '');
 
-            // For now, just confirm receipt
+            // For now, just confirm
             await interaction.reply({
-                content: `**Ticket Received**\n**Title:** ${title}\n**Message:** ${message}`,
+                embeds: [
+                    {
+                        title: '🎫 Ticket Submitted',
+                        description: `**Type:** Button ${buttonType}\n**Subject:** ${title}\n**Details:** ${message}`,
+                        color: 0x00FF00,
+                        timestamp: new Date().toISOString()
+                    }
+                ],
                 ephemeral: true
             });
         }
