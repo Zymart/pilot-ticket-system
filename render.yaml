@@ -3,7 +3,7 @@ services:
   - type: web
     name: ticket-bot
     runtime: node
-    region: oregon  # Change to your region: ohio, virginia, frankfurt, singapore, etc.
+    region: oregon
     buildCommand: npm install
     startCommand: npm start
     envVars:
@@ -12,17 +12,19 @@ services:
       - key: PORT
         value: 10000
       - key: DISCORD_TOKEN
-        sync: false  # Set in dashboard manually
+        sync: false
       - key: CLIENT_ID
         sync: false
       - key: GUILD_ID
         sync: false
+      - key: JSONBIN_MASTER_KEY
+        sync: false
 
-  # Cron job to keep bot alive (pings every 10 minutes)
+  # Cron job to keep alive (every 10 minutes)
   - type: cron
     name: ticket-bot-ping
     runtime: node
-    region: oregon  # Match your web service region
-    schedule: "*/10 * * * *"  # Every 10 minutes
+    region: oregon
+    schedule: "*/10 * * * *"
     buildCommand: echo "No build needed"
     startCommand: curl -s https://$RENDER_EXTERNAL_HOSTNAME/health || echo "Ping failed"
