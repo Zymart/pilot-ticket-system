@@ -38,11 +38,9 @@ module.exports = {
 
         const item = interaction.options.getString('item');
         
-        // Get username from channel name since ticket data might not be in memory
         const channelNameParts = interaction.channel.name.replace('ticket-', '').replace('closed-', '').split('-');
         const usernameFromChannel = channelNameParts[0] || 'unknown';
         
-        // Try to get from memory first
         const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
         const ticketData = ticketEntry ? ticketEntry[1] : null;
         
@@ -54,7 +52,8 @@ module.exports = {
         const cleanItem = item.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
         const channelName = `${cleanUser}-${cleanItem}`;
 
-        // Build permission overwrites by copying from ticket channel
+        await interaction.channel.fetch();
+        
         const permissionOverwrites = [
             {
                 id: interaction.guild.id,
@@ -62,7 +61,6 @@ module.exports = {
             }
         ];
 
-        // Copy all permissions from ticket channel
         for (const [id, perm] of interaction.channel.permissionOverwrites.cache) {
             if (id === interaction.guild.id) continue;
             
@@ -82,7 +80,6 @@ module.exports = {
             }
         }
 
-        // Add support roles
         if (guildConfig?.supportRoleIds?.length > 0) {
             for (const roleId of guildConfig.supportRoleIds) {
                 const alreadyAdded = permissionOverwrites.some(p => p.id === roleId);
@@ -98,6 +95,34 @@ module.exports = {
                     });
                 }
             }
+        }
+
+        const ownerAdded = permissionOverwrites.some(p => p.id === discordUserId);
+        if (!ownerAdded) {
+            permissionOverwrites.push({
+                id: discordUserId,
+                type: 1,
+                allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.ReadMessageHistory,
+                    PermissionFlagsBits.AttachFiles
+                ]
+            });
+        }
+
+        const userAdded = permissionOverwrites.some(p => p.id === interaction.user.id);
+        if (!userAdded) {
+            permissionOverwrites.push({
+                id: interaction.user.id,
+                type: 1,
+                allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.ReadMessageHistory,
+                    PermissionFlagsBits.AttachFiles
+                ]
+            });
         }
 
         const pilotCategory = interaction.guild.channels.cache.get(guildConfig.pilotChannelId);
@@ -154,15 +179,24 @@ module.exports = {
                         .setEmoji('📋')
                 );
 
-            await webChannel.send({
+            // This is the IMPORTANT message - keep it
+            const infoMessage = await webChannel.send({
                 content: `Web channel created for **${discordUserTag}**`,
                 embeds: [infoEmbed, webhookEmbed],
                 components: [copyRow]
             });
 
-            await interaction.editReply({
+            // Save message ID to check later
+            // (not implemented but you could save this to know which to keep)
+
+            const reply = await interaction.editReply({
                 content: `✅ Web channel created: ${webChannel}\n**Discord:** ${discordUserTag}\n**Roblox:** ${username}\n**Item:** ${item}`
             });
+
+            // Auto delete the command reply after 2 minutes
+            setTimeout(() => {
+                reply.delete().catch(() => {});
+            }, 120000);
 
         } catch (err) {
             console.error('Pilotweb creation failed:', err);
