@@ -20,7 +20,6 @@ const {
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
-const jsonbin = require('./utils/jsonbin');
 const configManager = require('./utils/configManager');
 
 const client = new Client({
@@ -64,10 +63,32 @@ if (process.env.NODE_ENV === 'production') {
 
 client.once(Events.ClientReady, async () => {
     console.log(`Bot ready: ${client.user.tag}`);
-    await configManager.init();
-    await configManager.loadAllTickets();
-    console.log(`Bot fully initialized with ${client.commands.size} commands`);
+    configManager.init();
+    console.log(`Bot ready with ${client.commands.size} commands`);
 });
+
+// AUTO DELETE FUNCTION
+async function autoDeleteMessage(message, delayMs = 60000) {
+    // Don't delete if it has specific components we want to keep
+    if (message.components?.length > 0) {
+        const hasTicketButton = message.components.some(row => 
+            row.components.some(btn => btn.customId === 'create_ticket')
+        );
+        if (hasTicketButton) return; // Keep /ticket panel
+    }
+    
+    // Don't delete pilotweb first message (has specific embed title)
+    if (message.embeds?.length > 0) {
+        const isPilotwebInfo = message.embeds.some(e => 
+            e.title === '📦 New Web Channel' || e.title === '📋 Channel Info'
+        );
+        if (isPilotwebInfo && message.author.id === client.user.id) return;
+    }
+    
+    setTimeout(() => {
+        message.delete().catch(() => {});
+    }, delayMs);
+}
 
 client.on(Events.InteractionCreate, async interaction => {
     try {
@@ -79,6 +100,12 @@ client.on(Events.InteractionCreate, async interaction => {
 
             try {
                 await cmd.execute(interaction, { configManager });
+                
+                // Auto delete command reply after 2 minutes (except for setup/ticket)
+                if (!['setup', 'ticket'].includes(interaction.commandName)) {
+                    const reply = await interaction.fetchReply();
+                    autoDeleteMessage(reply, 120000);
+                }
             } catch (e) {
                 console.error(e);
                 await interaction.editReply({ content: '❌ Error executing command.' });
@@ -135,7 +162,6 @@ client.on(Events.InteractionCreate, async interaction => {
             const buying = interaction.fields.getTextInputValue('buying');
             const game = interaction.fields.getTextInputValue('game');
 
-            // NO RANDOM NUMBERS - just username
             const cleanName = robloxUser.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
             const channelName = `ticket-${cleanName}`;
 
@@ -189,23 +215,15 @@ client.on(Events.InteractionCreate, async interaction => {
 
                 const ticketChannel = await interaction.guild.channels.create(channelOptions);
 
-                const ticketData = {
-                    userId: interaction.user.id,
-                    userTag: interaction.user.tag,
-                    robloxUsername: robloxUser,
-                    buying: buying,
-                    game: game,
-                    channelId: ticketChannel.id,
-                    guildId: interaction.guild.id,
-                    status: 'open',
-                    createdAt: new Date().toISOString()
-                };
-
-                const binId = await jsonbin.create(ticketData);
                 await configManager.saveTicket(interaction.user.id, { 
                     channelId: ticketChannel.id, 
-                    binId,
-                    ...ticketData
+                    robloxUsername: robloxUser,
+                    userId: interaction.user.id,
+                    userTag: interaction.user.tag,
+                    buying: buying,
+                    game: game,
+                    status: 'open',
+                    createdAt: new Date().toISOString()
                 });
 
                 const infoEmbed = new EmbedBuilder()
@@ -222,7 +240,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const closeRow = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
-                            .setCustomId(`close_${binId}`)
+                            .setCustomId(`close_${interaction.user.id}`)
                             .setLabel('Close Ticket')
                             .setStyle(ButtonStyle.Danger)
                             .setEmoji('🔒')
@@ -234,7 +252,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     pingContent += ` ${roleMentions}`;
                 }
 
-                await ticketChannel.send({
+                const ticketMessage = await ticketChannel.send({
                     content: pingContent,
                     embeds: [infoEmbed],
                     components: [closeRow]
@@ -250,23 +268,15 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
         else if (interaction.isButton() && interaction.customId.startsWith('close_')) {
-            const binId = interaction.customId.replace('close_', '');
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
-                const data = await jsonbin.read(binId);
-                data.status = 'closed';
-                data.closedAt = new Date().toISOString();
-                data.closedBy = interaction.user.id;
-                data.closedByTag = interaction.user.tag;
-                await jsonbin.update(binId, data);
-
                 const ticket = configManager.getTicket(interaction.user.id) || 
-                    Array.from(configManager.tickets.entries()).find(([k, v]) => v.binId === binId);
+                    Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
                 
                 if (ticket) {
                     const userId = Array.isArray(ticket) ? ticket[0] : interaction.user.id;
-                    await configManager.closeTicket(userId, { ...ticket, status: 'closed' });
+                    await configManager.closeTicket(userId, { status: 'closed' });
                 }
 
                 await interaction.channel.permissionOverwrites.set([
@@ -290,10 +300,13 @@ client.on(Events.InteractionCreate, async interaction => {
                             .setEmoji('🗑️')
                     );
 
-                await interaction.editReply({
+                const closeMsg = await interaction.editReply({
                     content: '🔒 Ticket closed.',
                     components: [actionRow]
                 });
+
+                // Auto delete the close message after 5 minutes
+                autoDeleteMessage(closeMsg, 300000);
 
                 await interaction.channel.send({
                     embeds: [{
@@ -353,10 +366,13 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
 
                 const attachment = new AttachmentBuilder(fileBuffer, { name: fileName });
-                await interaction.editReply({
+                const reply = await interaction.editReply({
                     content: '✅ Transcript generated!',
                     files: [attachment]
                 });
+
+                // Auto delete after 2 minutes
+                autoDeleteMessage(reply, 120000);
 
             } catch (err) {
                 console.error('Transcript failed:', err);
@@ -379,7 +395,6 @@ client.on(Events.InteractionCreate, async interaction => {
                     try {
                         await ch.delete('Connected ticket deleted');
                         deletedCount++;
-                        console.log(`Deleted pilotweb channel: ${ch.name}`);
                     } catch (err) {
                         console.error(`Failed to delete pilotweb ${ch.name}:`, err);
                     }
@@ -388,15 +403,6 @@ client.on(Events.InteractionCreate, async interaction => {
                 const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
                 if (ticketEntry) {
                     const [userId, ticketData] = ticketEntry;
-                    
-                    if (ticketData.binId && !ticketData.binId.startsWith('fake-')) {
-                        const data = await jsonbin.read(ticketData.binId) || {};
-                        data.status = 'deleted';
-                        data.deletedAt = new Date().toISOString();
-                        data.deletedBy = interaction.user.id;
-                        await jsonbin.update(ticketData.binId, data);
-                    }
-                    
                     await configManager.closeTicket(userId, { ...ticketData, status: 'deleted' });
                 }
 
@@ -421,9 +427,12 @@ client.on(Events.InteractionCreate, async interaction => {
                 const webhook = webhooks.find(wh => wh.id === interaction.customId.replace('copy_webhook_', ''));
                 
                 if (webhook) {
-                    await interaction.editReply({
+                    const reply = await interaction.editReply({
                         content: `📋 **Click to copy:**\n\`\`\`${webhook.url}\`\`\``
                     });
+                    
+                    // Auto delete after 1 minute
+                    autoDeleteMessage(reply, 60000);
                 } else {
                     await interaction.editReply({ content: '❌ Webhook not found.' });
                 }
@@ -441,8 +450,6 @@ client.on(Events.InteractionCreate, async interaction => {
 client.on(Events.ChannelDelete, async channel => {
     if (!channel.name.startsWith('ticket-') && !channel.name.startsWith('closed-')) return;
     
-    console.log(`Ticket channel deleted: ${channel.name} (${channel.id})`);
-    
     let ticketUserId = null;
     let ticketData = null;
     
@@ -454,24 +461,7 @@ client.on(Events.ChannelDelete, async channel => {
         }
     }
     
-    if (!ticketUserId) {
-        console.log('No ticket found for deleted channel');
-        return;
-    }
-    
-    if (ticketData.binId && !ticketData.binId.startsWith('fake-')) {
-        try {
-            const data = await jsonbin.read(ticketData.binId);
-            if (data) {
-                data.status = 'deleted';
-                data.deletedAt = new Date().toISOString();
-                data.deletedBy = 'manual';
-                await jsonbin.update(ticketData.binId, data);
-            }
-        } catch (err) {
-            console.error('Failed to update JSONBin on delete:', err);
-        }
-    }
+    if (!ticketUserId) return;
     
     await configManager.closeTicket(ticketUserId, {
         ...ticketData,
