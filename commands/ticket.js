@@ -10,92 +10,62 @@ const {
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('ticket')
-        .setDescription('Create a public ticket panel with buttons')
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) // Only admins
-        // Title
-        .addStringOption(option => 
-            option.setName('title')
-                .setDescription('Embed title')
-                .setRequired(true))
-        // Message
-        .addStringOption(option => 
-            option.setName('message')
-                .setDescription('Embed description/message')
-                .setRequired(true))
-        // Button 1 (required)
-        .addStringOption(option => 
-            option.setName('button1')
-                .setDescription('First button label')
-                .setRequired(true))
-        // Button 2 (optional)
-        .addStringOption(option => 
-            option.setName('button2')
-                .setDescription('Second button label (optional)')
-                .setRequired(false))
-        // Button 3 (optional)
-        .addStringOption(option => 
-            option.setName('button3')
-                .setDescription('Third button label (optional)')
-                .setRequired(false))
-        // Button 4 (optional)
-        .addStringOption(option => 
-            option.setName('button4')
-                .setDescription('Fourth button label (optional)')
-                .setRequired(false))
-        // Button 5 (optional)
-        .addStringOption(option => 
-            option.setName('button5')
-                .setDescription('Fifth button label (optional)')
-                .setRequired(false)),
+        .setDescription('Post a ticket panel')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addStringOption(o => o.setName('title').setDescription('Panel title').setRequired(true))
+        .addStringOption(o => o.setName('message').setDescription('Panel description').setRequired(true))
+        .addStringOption(o => o.setName('button1').setDescription('Button 1 text').setRequired(true))
+        .addStringOption(o => o.setName('button2').setDescription('Button 2 (optional)').setRequired(false))
+        .addStringOption(o => o.setName('button3').setDescription('Button 3 (optional)').setRequired(false))
+        .addStringOption(o => o.setName('color').setDescription('Embed color: blurple, red, green, yellow, black').setRequired(false)),
 
     async execute(interaction) {
         const title = interaction.options.getString('title');
         const message = interaction.options.getString('message');
-        
-        // Collect all buttons
+        const colorChoice = interaction.options.getString('color') || 'blurple';
+
+        const colors = {
+            blurple: 0x5865F2,
+            red: 0xED4245,
+            green: 0x57F287,
+            yellow: 0xFEE75C,
+            black: 0x23272A
+        };
+
+        // Build buttons
         const buttons = [];
-        for (let i = 1; i <= 5; i++) {
+        for (let i = 1; i <= 3; i++) {
             const label = interaction.options.getString(`button${i}`);
             if (label) {
                 buttons.push(
                     new ButtonBuilder()
-                        .setCustomId(`ticket_create_${i}`)
+                        .setCustomId(`ticket_${i}_${label.toLowerCase().replace(/\s+/g, '_')}`)
                         .setLabel(label)
-                        .setStyle(ButtonStyle.Primary)
-                        .setEmoji('🎫')
+                        .setStyle(i === 1 ? ButtonStyle.Success : i === 2 ? ButtonStyle.Primary : ButtonStyle.Danger)
+                        .setEmoji(i === 1 ? '🎫' : i === 2 ? '💬' : '⚠️')
                 );
             }
         }
 
-        // Create embed
+        // Cool embed
         const embed = new EmbedBuilder()
-            .setTitle(title)
-            .setDescription(message)
-            .setColor(0x5865F2) // Discord blurple
+            .setTitle(` ${title}`)
+            .setDescription(`>>> ${message}`)
+            .setColor(colors[colorChoice] || colors.blurple)
+            .addFields(
+                { name: 'How it works', value: 'Click a button below to open a private ticket channel.', inline: false }
+            )
+            .setImage('https://media.discordapp.net/attachments/933841367677173840/1083711883211116614/divider.png') // Optional divider line
             .setTimestamp()
-            .setFooter({ 
-                text: `Posted by ${interaction.user.tag}`, 
-                iconURL: interaction.user.displayAvatarURL() 
-            });
+            .setFooter({ text: 'Ticket System', iconURL: interaction.guild.iconURL() });
 
-        // Split buttons into rows (max 5 per row)
+        // Max 3 buttons per row
         const rows = [];
-        for (let i = 0; i < buttons.length; i += 5) {
-            const row = new ActionRowBuilder()
-                .addComponents(buttons.slice(i, i + 5));
-            rows.push(row);
+        for (let i = 0; i < buttons.length; i += 3) {
+            rows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 3)));
         }
 
-        // Send public message
-        await interaction.channel.send({
-            embeds: [embed],
-            components: rows
-        });
-
-        // Confirm to admin (ephemeral)
-        await interaction.reply({
-            content: `✅ Ticket panel posted with **${buttons.length}** button(s)`,
-            ephemeral: true
-        });
+        await interaction.channel.send({ embeds: [embed], components: rows });
+        await interaction.reply({ content: '✅ Panel posted.', ephemeral: true });
     }
 };
