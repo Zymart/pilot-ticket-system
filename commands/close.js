@@ -47,11 +47,7 @@ module.exports = {
                 components: [actionRow]
             });
 
-            // Auto delete after 5 minutes
-            setTimeout(() => {
-                reply.delete().catch(() => {});
-            }, 300000);
-
+            setTimeout(() => reply.delete().catch(() => {}), 300000);
             return;
         }
 
@@ -93,10 +89,7 @@ module.exports = {
             components: [actionRow]
         });
 
-        // Auto delete after 5 minutes
-        setTimeout(() => {
-            reply.delete().catch(() => {});
-        }, 300000);
+        setTimeout(() => reply.delete().catch(() => {}), 300000);
 
         await interaction.channel.send({
             embeds: [{
