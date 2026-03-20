@@ -65,18 +65,15 @@ if (process.env.NODE_ENV === 'production') {
 // BOT READY - LOAD ALL DATA
 client.once(Events.ClientReady, async () => {
     console.log(`Bot ready: ${client.user.tag}`);
-    
-    // Init config manager and load all tickets
     await configManager.init();
     await configManager.loadAllTickets();
-    
     console.log(`Bot fully initialized with ${client.commands.size} commands`);
 });
 
 // INTERACTION HANDLER
 client.on(Events.InteractionCreate, async interaction => {
     try {
-        // SLASH COMMANDS - AUTO HANDLED
+        // SLASH COMMANDS
         if (interaction.isChatInputCommand()) {
             const cmd = client.commands.get(interaction.commandName);
             if (!cmd) return;
@@ -84,7 +81,6 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
-                // Inject configManager into command context
                 await cmd.execute(interaction, { configManager });
             } catch (e) {
                 console.error(e);
@@ -150,7 +146,6 @@ client.on(Events.InteractionCreate, async interaction => {
             const channelName = `ticket-${cleanName}-${Math.floor(Math.random()*99)}`;
 
             try {
-                // AUTO-LOAD GUILD CONFIG
                 const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
                 
                 const permissionOverwrites = [
@@ -169,7 +164,6 @@ client.on(Events.InteractionCreate, async interaction => {
                     }
                 ];
 
-                // AUTO-ADD SUPPORT ROLES FROM CONFIG
                 if (guildConfig?.supportRoleIds?.length > 0) {
                     for (const roleId of guildConfig.supportRoleIds) {
                         const role = interaction.guild.roles.cache.get(roleId);
@@ -192,7 +186,6 @@ client.on(Events.InteractionCreate, async interaction => {
                     permissionOverwrites: permissionOverwrites
                 };
 
-                // AUTO-SET CATEGORY FROM CONFIG
                 if (guildConfig?.ticketCategoryId) {
                     const category = interaction.guild.channels.cache.get(guildConfig.ticketCategoryId);
                     if (category && category.type === ChannelType.GuildCategory) {
@@ -202,7 +195,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
                 const ticketChannel = await interaction.guild.channels.create(channelOptions);
 
-                // SAVE TO JSONBIN
                 const ticketData = {
                     userId: interaction.user.id,
                     userTag: interaction.user.tag,
@@ -216,8 +208,6 @@ client.on(Events.InteractionCreate, async interaction => {
                 };
 
                 const binId = await jsonbin.create(ticketData);
-                
-                // AUTO-SAVE TO CONFIG MANAGER
                 await configManager.saveTicket(interaction.user.id, { 
                     channelId: ticketChannel.id, 
                     binId,
@@ -273,7 +263,6 @@ client.on(Events.InteractionCreate, async interaction => {
                 data.closedByTag = interaction.user.tag;
                 await jsonbin.update(binId, data);
 
-                // AUTO-REMOVE FROM CONFIG MANAGER
                 const ticket = configManager.getTicket(interaction.user.id) || 
                     Array.from(configManager.tickets.entries()).find(([k, v]) => v.binId === binId);
                 
@@ -303,6 +292,27 @@ client.on(Events.InteractionCreate, async interaction => {
             } catch (err) {
                 console.error('Close ticket failed:', err);
                 await interaction.editReply({ content: '❌ Error closing ticket.' });
+            }
+        }
+
+        // COPY WEBHOOK URL BUTTON
+        else if (interaction.isButton() && interaction.customId.startsWith('copy_webhook_')) {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            
+            try {
+                const webhooks = await interaction.channel.fetchWebhooks();
+                const webhook = webhooks.find(wh => wh.id === interaction.customId.replace('copy_webhook_', ''));
+                
+                if (webhook) {
+                    await interaction.editReply({
+                        content: `📋 **Webhook URL:**\n\`\`\`${webhook.url}\`\`\`\nCopy this URL to use in external services.`
+                    });
+                } else {
+                    await interaction.editReply({ content: '❌ Webhook not found.' });
+                }
+            } catch (err) {
+                console.error('Copy webhook failed:', err);
+                await interaction.editReply({ content: '❌ Failed to retrieve webhook URL.' });
             }
         }
 
