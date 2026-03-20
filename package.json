@@ -1,12 +1,10 @@
 {
   "name": "ticket-bot",
   "version": "1.0.0",
-  "description": "Discord ticket bot",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node index.js",
-    "deploy": "node deploy-commands.js"
+    "dev": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
