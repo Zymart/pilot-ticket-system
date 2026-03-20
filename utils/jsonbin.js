@@ -6,13 +6,12 @@ const MASTER_KEY = process.env.JSONBIN_MASTER_KEY;
 class JSONBin {
     constructor() {
         if (!MASTER_KEY) {
-            console.warn('WARNING: JSONBIN_MASTER_KEY not set. Using fake storage.');
+            console.error('ERROR: JSONBIN_MASTER_KEY not set!');
         }
         this.headers = {
-            'X-Master-Key': MASTER_KEY || 'fake-key',
+            'X-Master-Key': MASTER_KEY,
             'Content-Type': 'application/json'
         };
-        this.cache = new Map();
     }
 
     async create(data) {
@@ -24,9 +23,15 @@ class JSONBin {
                 headers: this.headers,
                 body: JSON.stringify(data)
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            if (!res.ok) {
+                const err = await res.text();
+                throw new Error(`HTTP ${res.status}: ${err}`);
+            }
+            
             const json = await res.json();
-            return json.metadata?.id || 'fake-' + Date.now();
+            return json.metadata?.id;
+            
         } catch (err) {
             console.error('JSONBin create failed:', err.message);
             return 'fake-' + Date.now();
@@ -34,23 +39,29 @@ class JSONBin {
     }
 
     async read(binId) {
-        if (!MASTER_KEY || binId.startsWith('fake-')) return { status: 'open' };
+        if (!MASTER_KEY || binId.startsWith('fake-')) return null;
 
         try {
             const res = await fetch(`${JSONBIN_ROOT}/b/${binId}`, {
                 headers: this.headers
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            if (!res.ok) {
+                if (res.status === 404) return null;
+                throw new Error(`HTTP ${res.status}`);
+            }
+            
             const json = await res.json();
             return json.record;
+            
         } catch (err) {
             console.error('JSONBin read failed:', err.message);
-            return { status: 'open' };
+            return null;
         }
     }
 
     async update(binId, data) {
-        if (!MASTER_KEY || binId.startsWith('fake-')) return true;
+        if (!MASTER_KEY || binId.startsWith('fake-')) return false;
 
         try {
             const res = await fetch(`${JSONBIN_ROOT}/b/${binId}`, {
@@ -58,28 +69,12 @@ class JSONBin {
                 headers: this.headers,
                 body: JSON.stringify(data)
             });
+            
             return res.ok;
+            
         } catch (err) {
             console.error('JSONBin update failed:', err.message);
             return false;
-        }
-    }
-
-    async getOrCreateBin(name, defaultData = {}) {
-        if (!MASTER_KEY) return 'fake-' + name;
-
-        try {
-            const res = await fetch(`${JSONBIN_ROOT}/b`, {
-                method: 'POST',
-                headers: this.headers,
-                body: JSON.stringify({ name, ...defaultData })
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
-            return json.metadata?.id;
-        } catch (err) {
-            console.error('JSONBin getOrCreateBin failed:', err.message);
-            return 'fake-' + name;
         }
     }
 }
