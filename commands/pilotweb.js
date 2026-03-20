@@ -179,24 +179,17 @@ module.exports = {
                         .setEmoji('📋')
                 );
 
-            // This is the IMPORTANT message - keep it
-            const infoMessage = await webChannel.send({
+            await webChannel.send({
                 content: `Web channel created for **${discordUserTag}**`,
                 embeds: [infoEmbed, webhookEmbed],
                 components: [copyRow]
             });
 
-            // Save message ID to check later
-            // (not implemented but you could save this to know which to keep)
-
             const reply = await interaction.editReply({
                 content: `✅ Web channel created: ${webChannel}\n**Discord:** ${discordUserTag}\n**Roblox:** ${username}\n**Item:** ${item}`
             });
 
-            // Auto delete the command reply after 2 minutes
-            setTimeout(() => {
-                reply.delete().catch(() => {});
-            }, 120000);
+            setTimeout(() => reply.delete().catch(() => {}), 120000);
 
         } catch (err) {
             console.error('Pilotweb creation failed:', err);
