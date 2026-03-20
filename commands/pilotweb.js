@@ -13,7 +13,13 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName('pilotweb')
         .setDescription('Create a private web channel for ticket members only')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ViewChannel),
+        .setDefaultMemberPermissions(PermissionFlagsBits.ViewChannel)
+        .addStringOption(option =>
+            option
+                .setName('item')
+                .setDescription('The item name for the channel')
+                .setRequired(true)
+        ),
 
     async execute(interaction, { configManager }) {
         // Check if in ticket channel
@@ -26,34 +32,51 @@ module.exports = {
         // Get guild config
         const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
         
-        // Check if pilot_channel_id is set
+        // Check if pilot_channel_id (category) is set
         if (!guildConfig?.pilotChannelId) {
             return await interaction.editReply({
-                content: '❌ Pilot channel not configured. Use `/setup pilot_channel_id:YOUR_CHANNEL_ID` first.'
+                content: '❌ Pilot category not configured. Use `/setup pilot_channel_id:CATEGORY_ID` first.'
             });
         }
 
-        // Get current channel permissions to see who has access
-        const currentPerms = interaction.channel.permissionOverwrites.cache;
+        // Get item from command
+        const item = interaction.options.getString('item');
+        
+        // Get ticket data to find username
+        const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
+        const ticketData = ticketEntry ? ticketEntry[1] : null;
+        const username = ticketData?.robloxUsername || 'unknown';
+        
+        // Clean names for channel
+        const cleanUser = username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+        const cleanItem = item.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+        const channelName = `${cleanUser}-${cleanItem}`;
+
+        // Get ALL members who can see this channel (not just from cache)
+        await interaction.channel.fetch();
         const allowedUsers = [];
         const allowedRoles = [];
 
-        for (const [id, perm] of currentPerms) {
+        for (const [id, perm] of interaction.channel.permissionOverwrites.cache) {
+            // Skip @everyone (guild id)
+            if (id === interaction.guild.id) continue;
+            
+            // If it's a user and they can view channel
             if (perm.allow.has(PermissionFlagsBits.ViewChannel)) {
-                if (interaction.guild.members.cache.has(id)) {
-                    allowedUsers.push(id);
-                } else if (interaction.guild.roles.cache.has(id)) {
-                    allowedRoles.push(id);
-                }
+                allowedUsers.push(id);
+            }
+            // If it's a role
+            else if (perm.type === 0 && perm.allow.has(PermissionFlagsBits.ViewChannel)) {
+                allowedRoles.push(id);
             }
         }
 
-        // Always include the command user
+        // Always include command user
         if (!allowedUsers.includes(interaction.user.id)) {
             allowedUsers.push(interaction.user.id);
         }
 
-        // Create permission overwrites for new channel
+        // Create permission overwrites
         const permissionOverwrites = [
             {
                 id: interaction.guild.id,
@@ -61,7 +84,7 @@ module.exports = {
             }
         ];
 
-        // Add users
+        // Add all users from ticket
         for (const userId of allowedUsers) {
             permissionOverwrites.push({
                 id: userId,
@@ -74,7 +97,7 @@ module.exports = {
             });
         }
 
-        // Add roles
+        // Add all roles from ticket
         for (const roleId of allowedRoles) {
             permissionOverwrites.push({
                 id: roleId,
@@ -86,23 +109,20 @@ module.exports = {
             });
         }
 
-        // Get the pilot channel (category or parent channel)
-        const pilotChannel = interaction.guild.channels.cache.get(guildConfig.pilotChannelId);
-        
+        // Verify pilot channel is a category
+        const pilotCategory = interaction.guild.channels.cache.get(guildConfig.pilotChannelId);
+        if (!pilotCategory || pilotCategory.type !== ChannelType.GuildCategory) {
+            return await interaction.editReply({
+                content: '❌ Pilot channel ID is not a valid category. Please set a category ID in `/setup`.'
+            });
+        }
+
         const channelOptions = {
-            name: `pilotweb-${interaction.channel.name.replace('ticket-', '').replace('closed-', '').slice(0, 20)}`,
+            name: channelName,
             type: ChannelType.GuildText,
+            parent: guildConfig.pilotChannelId,
             permissionOverwrites: permissionOverwrites
         };
-
-        // If pilotChannel is a category, use it as parent
-        if (pilotChannel && pilotChannel.type === ChannelType.GuildCategory) {
-            channelOptions.parent = guildConfig.pilotChannelId;
-        } 
-        // If pilotChannel is a text channel, use its parent category
-        else if (pilotChannel && pilotChannel.type === ChannelType.GuildText && pilotChannel.parentId) {
-            channelOptions.parent = pilotChannel.parentId;
-        }
 
         try {
             const webChannel = await interaction.guild.channels.create(channelOptions);
@@ -115,7 +135,7 @@ module.exports = {
 
             const webhookEmbed = new EmbedBuilder()
                 .setTitle('🔗 Pilot Web Channel Created')
-                .setDescription('Use this webhook to send messages to this channel from external services.')
+                .setDescription(`Item: **${item}** | User: **${username}**`)
                 .addFields(
                     { name: 'Webhook URL', value: `\`${webhook.url}\`` },
                     { name: 'Channel', value: `${webChannel}` }
@@ -133,18 +153,18 @@ module.exports = {
                 );
 
             await webChannel.send({
-                content: `@everyone Pilot web channel created!`,
+                content: `Web channel created for **${username}** - **${item}**`,
                 embeds: [webhookEmbed],
                 components: [copyRow]
             });
 
             await interaction.editReply({
-                content: `✅ Pilot web channel created: ${webChannel}\nWebhook URL sent in the channel.`
+                content: `✅ Web channel created: ${webChannel}\n**User:** ${username}\n**Item:** ${item}`
             });
 
         } catch (err) {
             console.error('Pilotweb creation failed:', err);
-            await interaction.editReply({ content: '❌ Failed to create pilot web channel.' });
+            await interaction.editReply({ content: '❌ Failed to create web channel.' });
         }
     }
 };
