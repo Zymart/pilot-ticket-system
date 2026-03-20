@@ -7,7 +7,12 @@ const {
     Events,
     ChannelType,
     PermissionFlagsBits,
-    EmbedBuilder
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    ActionRowBuilder,
+    EmbedBuilder,
+    MessageFlags
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -56,42 +61,84 @@ client.once(Events.ClientReady, () => {
     console.log(`Ready: ${client.user.tag}`);
 });
 
-// In-memory cache for active tickets (binId -> channel mapping)
-const activeTickets = new Map();
+// Active tickets: userId -> { channelId, binId }
+const userTickets = new Map();
 
 client.on(Events.InteractionCreate, async interaction => {
     // Slash commands
     if (interaction.isChatInputCommand()) {
         const cmd = client.commands.get(interaction.commandName);
         if (!cmd) return;
+        
+        // Defer first to prevent timeout
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+        
         try {
             await cmd.execute(interaction);
         } catch (e) {
             console.error(e);
-            await interaction.reply({ content: 'Error.', ephemeral: true }).catch(() => {});
+            await interaction.editReply({ content: 'Error.' }).catch(() => {});
         }
     }
 
-    // Button = INSTANT TICKET + STORE IN JSONBIN
-    if (interaction.isButton() && interaction.customId.startsWith('ticket_')) {
-        const parts = interaction.customId.split('_');
-        const buttonLabel = parts.slice(2).join('_').replace(/_/g, ' ');
-        
-        await interaction.deferReply({ ephemeral: true });
-
-        // Check if user already has open ticket
-        for (const [binId, data] of activeTickets) {
-            if (data.userId === interaction.user.id && data.status === 'open') {
-                return interaction.editReply({ 
-                    content: `❌ You already have an open ticket.` 
-                });
-            }
+    // Create Ticket button → Show Modal
+    if (interaction.isButton() && interaction.customId === 'create_ticket') {
+        if (userTickets.has(interaction.user.id)) {
+            return interaction.reply({ 
+                content: '❌ You already have an open ticket. Close it first.', 
+                flags: MessageFlags.Ephemeral
+            });
         }
 
-        const channelName = `ticket-${interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8)}-${Math.floor(Math.random()*9999)}`;
+        const modal = new ModalBuilder()
+            .setCustomId('ticket_modal')
+            .setTitle('Create Your Ticket');
+
+        const robloxInput = new TextInputBuilder()
+            .setCustomId('roblox_username')
+            .setLabel('What is your Roblox username?')
+            .setPlaceholder('e.g., Builderman')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMaxLength(50);
+
+        const buyInput = new TextInputBuilder()
+            .setCustomId('buying')
+            .setLabel('What you gonna buy?')
+            .setPlaceholder('e.g., 1000 Robux, Premium')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMaxLength(100);
+
+        const gameInput = new TextInputBuilder()
+            .setCustomId('game')
+            .setLabel('What Roblox game?')
+            .setPlaceholder('e.g., Blox Fruits, Adopt Me')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMaxLength(100);
+
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(robloxInput),
+            new ActionRowBuilder().addComponents(buyInput),
+            new ActionRowBuilder().addComponents(gameInput)
+        );
+
+        await interaction.showModal(modal);
+    }
+
+    // Modal Submit → Create Ticket
+    if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+        const robloxUser = interaction.fields.getTextInputValue('roblox_username');
+        const buying = interaction.fields.getTextInputValue('buying');
+        const game = interaction.fields.getTextInputValue('game');
+
+        const cleanName = robloxUser.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15);
+        const channelName = `ticket-${cleanName}-${Math.floor(Math.random()*99)}`;
 
         try {
-            // Create Discord channel
             const ticketChannel = await interaction.guild.channels.create({
                 name: channelName,
                 type: ChannelType.GuildText,
@@ -112,47 +159,49 @@ client.on(Events.InteractionCreate, async interaction => {
                 ]
             });
 
-            // Store in JSONBin
             const ticketData = {
                 userId: interaction.user.id,
                 userTag: interaction.user.tag,
+                robloxUsername: robloxUser,
+                buying: buying,
+                game: game,
                 channelId: ticketChannel.id,
                 guildId: interaction.guild.id,
-                type: buttonLabel,
                 status: 'open',
-                createdAt: new Date().toISOString(),
-                messages: []
+                createdAt: new Date().toISOString()
             };
 
             const binId = await jsonbin.create(ticketData);
-            activeTickets.set(binId, { ...ticketData, binId });
+            userTickets.set(interaction.user.id, { channelId: ticketChannel.id, binId });
 
-            // Send welcome message
-            const welcomeEmbed = new EmbedBuilder()
-                .setTitle(`Ticket: ${buttonLabel}`)
-                .setDescription(`Hey ${interaction.user}, describe your issue here.\n\n**Ticket ID:** \`${binId}\``)
+            const infoEmbed = new EmbedBuilder()
+                .setTitle('🎫 New Ticket')
+                .addFields(
+                    { name: 'Roblox User', value: robloxUser, inline: true },
+                    { name: 'Buying', value: buying, inline: true },
+                    { name: 'Game', value: game, inline: true },
+                    { name: 'Discord', value: `<@${interaction.user.id}> (${interaction.user.tag})`, inline: false }
+                )
                 .setColor(0x5865F2)
-                .setFooter({ text: 'Click 🔒 to close this ticket' });
+                .setTimestamp();
 
-            const closeButton = {
-                type: 1,
-                components: [{
-                    type: 2,
-                    custom_id: `close_${binId}`,
-                    label: 'Close Ticket',
-                    style: 4,
-                    emoji: '🔒'
-                }]
-            };
+            const closeRow = new ActionRowBuilder()
+                .addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`close_${binId}`)
+                        .setLabel('Close Ticket')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('🔒')
+                );
 
-            await ticketChannel.send({ 
+            await ticketChannel.send({
                 content: `<@${interaction.user.id}>`,
-                embeds: [welcomeEmbed],
-                components: [closeButton]
+                embeds: [infoEmbed],
+                components: [closeRow]
             });
 
             await interaction.editReply({
-                content: `✅ Ticket created: ${ticketChannel}\n**ID:** \`${binId}\``
+                content: `✅ Ticket created: ${ticketChannel}\n**Roblox:** ${robloxUser}`
             });
 
         } catch (err) {
@@ -161,34 +210,32 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // Close ticket button
+    // Close Ticket
     if (interaction.isButton() && interaction.customId.startsWith('close_')) {
         const binId = interaction.customId.replace('close_', '');
-        
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
-            // Update JSONBin
             const data = await jsonbin.read(binId);
             data.status = 'closed';
             data.closedAt = new Date().toISOString();
             data.closedBy = interaction.user.id;
             await jsonbin.update(binId, data);
 
-            // Remove from memory
-            activeTickets.delete(binId);
+            const entry = Array.from(userTickets.entries()).find(([k, v]) => v.binId === binId);
+            if (entry) userTickets.delete(entry[0]);
 
-            // Delete channel or rename
-            await interaction.channel.setName(`closed-${interaction.channel.name}`);
-            await interaction.channel.permissionOverwrites.set([]); // Lock it
+            await interaction.channel.permissionOverwrites.set([
+                { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] }
+            ]);
+            await interaction.channel.setName(`closed-${interaction.channel.name.slice(0, 20)}`);
 
-            await interaction.editReply({ content: '🔒 Ticket closed and archived.' });
+            await interaction.editReply({ content: '🔒 Ticket closed.' });
 
-            // Send final message
             await interaction.channel.send({
                 embeds: [{
                     title: 'Ticket Closed',
-                    description: `Closed by ${interaction.user.tag}\n**ID:** \`${binId}\``,
+                    description: `Closed by ${interaction.user.tag}`,
                     color: 0xED4245,
                     timestamp: new Date()
                 }]
