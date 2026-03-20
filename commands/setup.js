@@ -19,19 +19,19 @@ module.exports = {
         .addStringOption(option =>
             option
                 .setName('pilot_channel_id')
-                .setDescription('The pilot channel ID for notifications')
+                .setDescription('The pilot category ID for web channels')
                 .setRequired(false)
         )
         .addStringOption(option =>
             option
                 .setName('support_role_ids')
-                .setDescription('Role IDs that can view all tickets (comma separated, optional)')
+                .setDescription('Role IDs that can view all tickets (comma separated)')
                 .setRequired(false)
         )
         .addStringOption(option =>
             option
                 .setName('log_channel_id')
-                .setDescription('Channel ID to log ticket events (optional)')
+                .setDescription('Channel ID to log ticket events')
                 .setRequired(false)
         ),
 
@@ -44,7 +44,7 @@ module.exports = {
         const category = interaction.guild.channels.cache.get(categoryId);
         if (!category || category.type !== ChannelType.GuildCategory) {
             return await interaction.editReply({
-                content: '❌ Invalid category ID. Please provide a valid category ID.'
+                content: '❌ Invalid category ID.'
             });
         }
 
@@ -60,10 +60,12 @@ module.exports = {
         await configManager.saveGuildConfig(interaction.guild.id, guildConfig);
 
         let replyContent = `✅ **Setup complete!**\n\n**Ticket Category:** ${category.name} (\`${categoryId}\`)`;
-        if (pilotChannelId) replyContent += `\n**Pilot Channel:** \`${pilotChannelId}\``;
+        if (pilotChannelId) replyContent += `\n**Pilot Category:** \`${pilotChannelId}\``;
         if (supportRoleIds) replyContent += `\n**Support Roles:** ${supportRoleIds}`;
         if (logChannelId) replyContent += `\n**Log Channel:** \`${logChannelId}\``;
 
-        await interaction.editReply({ content: replyContent });
+        const reply = await interaction.editReply({ content: replyContent });
+        
+        // Setup is important - don't auto delete
     }
 };
