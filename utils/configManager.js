@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_FILE = '/var/data/bot_data.json';
+const DATA_FILE = path.join(__dirname, '..', 'data.json');
 
 class ConfigManager {
     constructor() {
@@ -10,11 +10,6 @@ class ConfigManager {
     }
 
     init() {
-        const dir = path.dirname(DATA_FILE);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-        
         this.load();
         console.log(`Loaded ${this.configs.size} configs, ${this.tickets.size} tickets`);
     }
