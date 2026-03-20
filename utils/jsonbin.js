@@ -12,11 +12,12 @@ class JSONBin {
             'X-Master-Key': MASTER_KEY || 'fake-key',
             'Content-Type': 'application/json'
         };
+        this.cache = new Map();
     }
 
     async create(data) {
         if (!MASTER_KEY) return 'fake-' + Date.now();
-        
+
         try {
             const res = await fetch(`${JSONBIN_ROOT}/b`, {
                 method: 'POST',
@@ -34,7 +35,7 @@ class JSONBin {
 
     async read(binId) {
         if (!MASTER_KEY || binId.startsWith('fake-')) return { status: 'open' };
-        
+
         try {
             const res = await fetch(`${JSONBIN_ROOT}/b/${binId}`, {
                 headers: this.headers
@@ -50,7 +51,7 @@ class JSONBin {
 
     async update(binId, data) {
         if (!MASTER_KEY || binId.startsWith('fake-')) return true;
-        
+
         try {
             const res = await fetch(`${JSONBIN_ROOT}/b/${binId}`, {
                 method: 'PUT',
@@ -61,6 +62,24 @@ class JSONBin {
         } catch (err) {
             console.error('JSONBin update failed:', err.message);
             return false;
+        }
+    }
+
+    async getOrCreateBin(name, defaultData = {}) {
+        if (!MASTER_KEY) return 'fake-' + name;
+
+        try {
+            const res = await fetch(`${JSONBIN_ROOT}/b`, {
+                method: 'POST',
+                headers: this.headers,
+                body: JSON.stringify({ name, ...defaultData })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            return json.metadata?.id;
+        } catch (err) {
+            console.error('JSONBin getOrCreateBin failed:', err.message);
+            return 'fake-' + name;
         }
     }
 }
