@@ -5,10 +5,8 @@ const {
     REST, 
     Routes, 
     Events,
-    ModalBuilder,
-    TextInputBuilder,
-    TextInputStyle,
-    ActionRowBuilder
+    ChannelType,
+    PermissionFlagsBits
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -36,99 +34,88 @@ for (const file of commandFiles) {
     commands.push(command.data.toJSON());
 }
 
-// Deploy commands
+// Deploy
 if (process.env.NODE_ENV === 'production') {
     const rest = new REST({ version: '10' }).setToken(config.token);
     (async () => {
         try {
-            console.log('Deploying commands...');
             await rest.put(
                 Routes.applicationGuildCommands(config.clientId, config.guildId),
                 { body: commands }
             );
-            console.log('Commands deployed.');
-        } catch (error) {
-            console.error('Deploy failed:', error);
+            console.log('Deployed.');
+        } catch (e) {
+            console.error(e);
         }
     })();
 }
 
 client.once(Events.ClientReady, () => {
-    console.log(`Bot ready: ${client.user.tag}`);
+    console.log(`Ready: ${client.user.tag}`);
 });
 
 client.on(Events.InteractionCreate, async interaction => {
-    // Slash commands
+    // Slash
     if (interaction.isChatInputCommand()) {
-        const command = client.commands.get(interaction.commandName);
-        if (!command) return;
+        const cmd = client.commands.get(interaction.commandName);
+        if (!cmd) return;
+        try {
+            await cmd.execute(interaction);
+        } catch (e) {
+            console.error(e);
+            await interaction.reply({ content: 'Error.', ephemeral: true }).catch(() => {});
+        }
+    }
+
+    // Button = INSTANT TICKET
+    if (interaction.isButton() && interaction.customId.startsWith('ticket_')) {
+        const parts = interaction.customId.split('_');
+        const buttonNum = parts[1];
+        const buttonLabel = parts.slice(2).join('_').replace(/_/g, ' ');
+        
+        await interaction.deferReply({ ephemeral: true });
+
+        // Create channel name
+        const channelName = `ticket-${interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '')}-${Date.now().toString().slice(-4)}`;
 
         try {
-            await command.execute(interaction, client);
-        } catch (error) {
-            console.error(error);
-            await interaction.reply({ 
-                content: 'Error executing command.', 
-                ephemeral: true 
-            }).catch(() => {});
-        }
-    }
-
-    // Button clicks
-    if (interaction.isButton()) {
-        if (interaction.customId.startsWith('ticket_create_')) {
-            // Get button label from the clicked button
-            const buttonLabel = interaction.component.label;
-            
-            // Create modal
-            const modal = new ModalBuilder()
-                .setCustomId(`ticket_modal_${interaction.customId}`)
-                .setTitle(`Ticket: ${buttonLabel}`);
-
-            const titleInput = new TextInputBuilder()
-                .setCustomId('ticketTitle')
-                .setLabel('Subject')
-                .setPlaceholder('Brief summary...')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true)
-                .setMaxLength(100);
-
-            const messageInput = new TextInputBuilder()
-                .setCustomId('ticketMessage')
-                .setLabel('Details')
-                .setPlaceholder('Describe your issue in detail...')
-                .setStyle(TextInputStyle.Paragraph)
-                .setRequired(true)
-                .setMaxLength(1000);
-
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(titleInput),
-                new ActionRowBuilder().addComponents(messageInput)
-            );
-
-            await interaction.showModal(modal);
-        }
-    }
-
-    // Modal submissions
-    if (interaction.isModalSubmit()) {
-        if (interaction.customId.startsWith('ticket_modal_')) {
-            const title = interaction.fields.getTextInputValue('ticketTitle');
-            const message = interaction.fields.getTextInputValue('ticketMessage');
-            const buttonType = interaction.customId.replace('ticket_modal_ticket_create_', '');
-
-            // For now, just confirm
-            await interaction.reply({
-                embeds: [
+            const ticketChannel = await interaction.guild.channels.create({
+                name: channelName,
+                type: ChannelType.GuildText,
+                parent: null, // Set category ID if you want
+                permissionOverwrites: [
                     {
-                        title: '🎫 Ticket Submitted',
-                        description: `**Type:** Button ${buttonType}\n**Subject:** ${title}\n**Details:** ${message}`,
-                        color: 0x00FF00,
-                        timestamp: new Date().toISOString()
+                        id: interaction.guild.id,
+                        deny: [PermissionFlagsBits.ViewChannel]
+                    },
+                    {
+                        id: interaction.user.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory
+                        ]
                     }
-                ],
-                ephemeral: true
+                ]
             });
+
+            // Send welcome message in ticket
+            await ticketChannel.send({
+                content: `<@${interaction.user.id}>`,
+                embeds: [{
+                    title: `Ticket Opened: ${buttonLabel.toUpperCase()}`,
+                    description: `Hey ${interaction.user.username}, support will be with you shortly.\n\n**Type:** ${buttonLabel}\n**Opened:** <t:${Math.floor(Date.now()/1000)}:R>`,
+                    color: 0x5865F2
+                }]
+            });
+
+            await interaction.editReply({
+                content: `✅ Ticket created: ${ticketChannel}`
+            });
+
+        } catch (err) {
+            console.error(err);
+            await interaction.editReply({ content: '❌ Failed to create ticket.' });
         }
     }
 });
