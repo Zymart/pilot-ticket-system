@@ -22,7 +22,6 @@ const path = require('path');
 const config = require('./config');
 const configManager = require('./utils/configManager');
 
-// DEBUG: Check config loaded
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
 console.log('Token length:', config.token?.length);
@@ -37,7 +36,15 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.MessageContent
-    ]
+    ],
+    rest: {
+        timeout: 60000,
+        retries: 3
+    },
+    ws: {
+        large_threshold: 50,
+        compress: false
+    }
 });
 
 client.commands = new Collection();
@@ -54,7 +61,6 @@ for (const file of commandFiles) {
     console.log(`Loaded command: ${command.data.name}`);
 }
 
-// DEPLOY COMMANDS
 if (process.env.NODE_ENV === 'production') {
     const rest = new REST({ version: '10' }).setToken(config.token);
     (async () => {
@@ -71,14 +77,12 @@ if (process.env.NODE_ENV === 'production') {
     })();
 }
 
-// BOT READY
 client.once(Events.ClientReady, () => {
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
 
-// DEBUG: Log all events
 client.on(Events.Debug, (info) => {
     console.log('Discord Debug:', info);
 });
@@ -87,7 +91,6 @@ client.on(Events.Warn, (info) => {
     console.log('Discord Warn:', info);
 });
 
-// BOT ERROR HANDLING
 client.on(Events.Error, (error) => {
     console.error('Discord Client Error:', error.message);
     console.error('Error stack:', error.stack);
@@ -101,7 +104,6 @@ client.on(Events.Invalidated, () => {
     console.error('Session invalidated!');
 });
 
-// AUTO DELETE FUNCTION
 async function autoDeleteMessage(message, delayMs = 60000) {
     if (message.components?.length > 0) {
         const hasTicketButton = message.components.some(row => 
@@ -122,7 +124,6 @@ async function autoDeleteMessage(message, delayMs = 60000) {
     }, delayMs);
 }
 
-// INTERACTION HANDLER
 client.on(Events.InteractionCreate, async interaction => {
     try {
         if (interaction.isChatInputCommand()) {
@@ -501,7 +502,6 @@ client.on(Events.ChannelDelete, async channel => {
     console.log(`Cleaned up ticket for user ${ticketUserId}`);
 });
 
-// LOGIN WITH TIMEOUT AND BETTER ERROR HANDLING
 console.log('Starting bot login...');
 
 const loginTimeout = setTimeout(() => {
@@ -510,6 +510,7 @@ const loginTimeout = setTimeout(() => {
     console.error('1. Invalid token');
     console.error('2. Discord API down');
     console.error('3. IP banned/rate limited');
+    console.error('4. WebSocket connection blocked');
 }, 30000);
 
 client.login(config.token).then(() => {
