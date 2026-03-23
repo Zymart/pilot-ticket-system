@@ -22,6 +22,14 @@ const path = require('path');
 const config = require('./config');
 const configManager = require('./utils/configManager');
 
+// DEBUG: Check config loaded
+console.log('=== CONFIG DEBUG ===');
+console.log('Token exists:', !!config.token);
+console.log('Token length:', config.token?.length);
+console.log('Client ID:', config.clientId);
+console.log('Guild ID:', config.guildId);
+console.log('====================');
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -45,6 +53,7 @@ for (const file of commandFiles) {
     console.log(`Loaded command: ${command.data.name}`);
 }
 
+// DEPLOY COMMANDS
 if (process.env.NODE_ENV === 'production') {
     const rest = new REST({ version: '10' }).setToken(config.token);
     (async () => {
@@ -54,19 +63,30 @@ if (process.env.NODE_ENV === 'production') {
                 Routes.applicationGuildCommands(config.clientId, config.guildId),
                 { body: commands }
             );
-            console.log('Commands deployed.');
+            console.log('Commands deployed successfully');
         } catch (e) {
-            console.error('Deploy failed:', e);
+            console.error('Deploy failed:', e.message);
         }
     })();
 }
 
+// BOT READY
 client.once(Events.ClientReady, () => {
-    console.log(`Bot ready: ${client.user.tag}`);
+    console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
-    console.log(`Bot ready with ${client.commands.size} commands`);
+    console.log(`Bot initialized with ${client.commands.size} commands`);
 });
 
+// BOT ERROR HANDLING
+client.on(Events.Error, (error) => {
+    console.error('Discord Client Error:', error.message);
+});
+
+client.on(Events.ShardError, (error) => {
+    console.error('WebSocket Error:', error.message);
+});
+
+// AUTO DELETE FUNCTION
 async function autoDeleteMessage(message, delayMs = 60000) {
     if (message.components?.length > 0) {
         const hasTicketButton = message.components.some(row => 
@@ -87,6 +107,7 @@ async function autoDeleteMessage(message, delayMs = 60000) {
     }, delayMs);
 }
 
+// INTERACTION HANDLER
 client.on(Events.InteractionCreate, async interaction => {
     try {
         if (interaction.isChatInputCommand()) {
@@ -465,7 +486,10 @@ client.on(Events.ChannelDelete, async channel => {
     console.log(`Cleaned up ticket for user ${ticketUserId}`);
 });
 
-client.login(config.token).catch(err => {
-    console.error('Login failed:', err);
-    process.exit(1);
+// LOGIN WITH BETTER ERROR HANDLING
+client.login(config.token).then(() => {
+    console.log('✅ Login successful');
+}).catch(err => {
+    console.error('❌ Login failed:', err.message);
+    console.error('Error code:', err.code);
 });
