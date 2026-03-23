@@ -26,6 +26,7 @@ const configManager = require('./utils/configManager');
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
 console.log('Token length:', config.token?.length);
+console.log('Token starts with:', config.token?.substring(0, 10) + '...');
 console.log('Client ID:', config.clientId);
 console.log('Guild ID:', config.guildId);
 console.log('====================');
@@ -77,13 +78,27 @@ client.once(Events.ClientReady, () => {
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
 
+// DEBUG: Log all events
+client.on(Events.Debug, (info) => {
+    console.log('Discord Debug:', info);
+});
+
+client.on(Events.Warn, (info) => {
+    console.log('Discord Warn:', info);
+});
+
 // BOT ERROR HANDLING
 client.on(Events.Error, (error) => {
     console.error('Discord Client Error:', error.message);
+    console.error('Error stack:', error.stack);
 });
 
 client.on(Events.ShardError, (error) => {
     console.error('WebSocket Error:', error.message);
+});
+
+client.on(Events.Invalidated, () => {
+    console.error('Session invalidated!');
 });
 
 // AUTO DELETE FUNCTION
@@ -486,10 +501,23 @@ client.on(Events.ChannelDelete, async channel => {
     console.log(`Cleaned up ticket for user ${ticketUserId}`);
 });
 
-// LOGIN WITH BETTER ERROR HANDLING
+// LOGIN WITH TIMEOUT AND BETTER ERROR HANDLING
+console.log('Starting bot login...');
+
+const loginTimeout = setTimeout(() => {
+    console.error('❌ Login timeout after 30 seconds');
+    console.error('Possible causes:');
+    console.error('1. Invalid token');
+    console.error('2. Discord API down');
+    console.error('3. IP banned/rate limited');
+}, 30000);
+
 client.login(config.token).then(() => {
+    clearTimeout(loginTimeout);
     console.log('✅ Login successful');
 }).catch(err => {
+    clearTimeout(loginTimeout);
     console.error('❌ Login failed:', err.message);
     console.error('Error code:', err.code);
+    console.error('Full error:', err);
 });
