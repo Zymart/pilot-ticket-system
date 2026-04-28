@@ -149,6 +149,35 @@ async function sendTranscriptToLog(guild, configManager, fileName, fileBuffer, c
     return { sent: true, channelId: logChannelId };
 }
 
+async function incrementCounterChannel(guild, channelId) {
+    const counterChannel = guild.channels.cache.get(channelId);
+
+    if (!counterChannel || typeof counterChannel.setName !== 'function') {
+        return { updated: false, reason: 'channel_not_found' };
+    }
+
+    const currentName = counterChannel.name || '';
+    const match = currentName.match(/(\d+)(?!.*\d)/);
+
+    if (!match) {
+        return { updated: false, reason: 'number_not_found', channelName: currentName };
+    }
+
+    const currentValue = Number.parseInt(match[1], 10);
+    const nextValue = currentValue + 1;
+    const updatedName = `${currentName.slice(0, match.index)}${nextValue}${currentName.slice(match.index + match[1].length)}`;
+
+    await counterChannel.setName(updatedName, 'Order completed with /done');
+
+    return {
+        updated: true,
+        previousValue: currentValue,
+        nextValue,
+        previousName: currentName,
+        updatedName
+    };
+}
+
 function buildTranscriptAttachment(fileName, fileBuffer) {
     return new AttachmentBuilder(fileBuffer, { name: fileName });
 }
@@ -202,6 +231,7 @@ module.exports = {
     deleteConnectedChannels,
     getTicketEntryByChannel,
     getTicketSummary,
+    incrementCounterChannel,
     isTicketChannel,
     removeTicketByChannel,
     resolveTicketSummary,

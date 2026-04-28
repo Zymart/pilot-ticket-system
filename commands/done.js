@@ -7,6 +7,7 @@ const {
     buildTranscriptAttachment,
     createTranscript,
     deleteConnectedChannels,
+    incrementCounterChannel,
     isTicketChannel,
     removeTicketByChannel,
     resolveTicketSummary,
@@ -15,6 +16,7 @@ const {
 
 const FACEBOOK_VOUCH_URL = 'https://www.facebook.com/share/v/1HC628gfWL/';
 const VOUCH_CHANNEL_ID = '1381279964300841062';
+const ORDERS_COMPLETED_CHANNEL_ID = '1498621701670568046';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -25,7 +27,7 @@ module.exports = {
     async execute(interaction, { configManager }) {
         if (!isTicketChannel(interaction.channel)) {
             return await interaction.editReply({
-                content: '❌ This command can only be used in ticket channels.'
+                content: 'This command can only be used in ticket channels.'
             });
         }
 
@@ -48,26 +50,24 @@ module.exports = {
             const vouchDestination = vouchChannel ? `${vouchChannel}` : `Channel ID: ${VOUCH_CHANNEL_ID}`;
 
             const completionEmbed = new EmbedBuilder()
-                .setTitle('✅ Transaction Complete')
+                .setTitle('Transaction Complete')
                 .setDescription(
                     [
-                        '🎉 Your order is finished.',
-                        '',
-                        '💖 Please Vouch us In Our Facebook Post:',
+                        'Please Vouch us In Our Facebook Post:',
                         FACEBOOK_VOUCH_URL,
                         '',
-                        `🗣️ Or Vouch us in ${vouchDestination}`,
+                        `Or Vouch us in ${vouchDestination}`,
                         '',
-                        '🕒 This ticket and its connected channel will close in 5 seconds.'
+                        'This ticket and its connected channel will close in 5 seconds.'
                     ].join('\n')
                 )
                 .addFields(
-                    { name: '👤 Ticket Owner', value: ownerMention, inline: true },
-                    { name: '🎮 Roblox Username', value: summary.robloxUsername, inline: true },
-                    { name: '🛒 Buying', value: summary.buying, inline: true },
-                    { name: '🎯 Game', value: summary.game, inline: true },
-                    { name: '🧑‍💼 Completed By', value: interaction.user.tag, inline: true },
-                    { name: '🧾 Transcript', value: 'Attached below and copied to the log channel if one is configured.', inline: false }
+                    { name: 'Ticket Owner', value: ownerMention, inline: true },
+                    { name: 'Roblox Username', value: summary.robloxUsername, inline: true },
+                    { name: 'Buying', value: summary.buying, inline: true },
+                    { name: 'Game', value: summary.game, inline: true },
+                    { name: 'Completed By', value: interaction.user.tag, inline: true },
+                    { name: 'Transcript', value: 'Attached below and copied to the log channel if one is configured.', inline: false }
                 )
                 .setColor(0x57F287)
                 .setTimestamp();
@@ -82,15 +82,23 @@ module.exports = {
                 configManager,
                 fileName,
                 fileBuffer,
-                `✅ Transaction completed in ${interaction.channel} by ${interaction.user.tag}`
+                `Transaction completed in ${interaction.channel} by ${interaction.user.tag}`
             );
+
+            const counterResult = await incrementCounterChannel(
+                interaction.guild,
+                ORDERS_COMPLETED_CHANNEL_ID
+            ).catch(error => {
+                console.error('Order counter update failed:', error);
+                return { updated: false, reason: 'rename_failed' };
+            });
 
             removeTicketByChannel(configManager, interaction.channel.id);
 
             await interaction.editReply({
                 content: logResult.sent
-                    ? '✅ Transaction marked complete. Transcript sent to the ticket and log channel. Deleting this ticket in 5 seconds.'
-                    : '✅ Transaction marked complete. Transcript sent here. Log channel is not configured, so it was not copied anywhere else. Deleting this ticket in 5 seconds.'
+                    ? `Transaction marked complete. Transcript sent to the ticket and log channel.${counterResult.updated ? ` Orders completed is now ${counterResult.nextValue}.` : ''} Deleting this ticket in 5 seconds.`
+                    : `Transaction marked complete. Transcript sent here. Log channel is not configured, so it was not copied anywhere else.${counterResult.updated ? ` Orders completed is now ${counterResult.nextValue}.` : ''} Deleting this ticket in 5 seconds.`
             });
 
             setTimeout(async () => {
@@ -104,7 +112,7 @@ module.exports = {
         } catch (error) {
             console.error('Done command failed:', error);
             await interaction.editReply({
-                content: '❌ Failed to finish this ticket.'
+                content: 'Failed to finish this ticket.'
             });
         }
     }

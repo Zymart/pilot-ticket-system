@@ -56,6 +56,7 @@ const client = new Client({
 });
 
 client.commands = new Collection();
+client.ticketPanelDrafts = new Map();
 
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
@@ -128,6 +129,55 @@ function buildCloseActionRow() {
     );
 }
 
+function buildTicketPanelActionRow() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('create_ticket')
+            .setLabel('Create Ticket')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('ðŸŽ«')
+    );
+}
+
+function truncateText(text, limit) {
+    if (!text || text.length <= limit) {
+        return text;
+    }
+
+    return `${text.slice(0, limit - 3)}...`;
+}
+
+function isImageAttachment(attachment) {
+    return Boolean(attachment?.contentType?.startsWith('image/')) ||
+        /\.(png|jpe?g|gif|webp|bmp)$/i.test(attachment?.name || '');
+}
+
+function buildTicketPanelEmbedFromMessage(message) {
+    const embed = new EmbedBuilder()
+        .setDescription(truncateText(message.content?.trim() || 'Open a ticket by clicking the button below.', 4096))
+        .setColor(0x5865F2)
+        .setTimestamp();
+
+    const attachments = Array.from(message.attachments.values());
+    const firstImage = attachments.find(isImageAttachment);
+    if (firstImage) {
+        embed.setImage(firstImage.url);
+    }
+
+    const otherAttachmentUrls = attachments
+        .filter(attachment => !firstImage || attachment.id !== firstImage.id)
+        .map(attachment => attachment.url);
+
+    if (otherAttachmentUrls.length > 0) {
+        embed.addFields({
+            name: 'Attachments',
+            value: truncateText(otherAttachmentUrls.join('\n'), 1024)
+        });
+    }
+
+    return embed;
+}
+
 async function autoDeleteMessage(message, delayMs = 60000) {
     if (message.components?.length > 0) {
         const hasTicketButton = message.components.some(row =>
@@ -176,6 +226,32 @@ client.on(Events.InteractionCreate, async interaction => {
                 await interaction.editReply({ content: '❌ Error executing command.' });
             }
 
+            return;
+        }
+
+        if (interaction.isChannelSelectMenu() && interaction.customId === 'ticket_panel_channel_select') {
+            const targetChannelId = interaction.values[0];
+            const targetChannel = interaction.guild.channels.cache.get(targetChannelId);
+
+            if (!targetChannel || targetChannel.type !== ChannelType.GuildText) {
+                await interaction.update({
+                    content: 'Please choose a text channel.',
+                    components: interaction.message.components
+                });
+                return;
+            }
+
+            client.ticketPanelDrafts.set(interaction.user.id, {
+                guildId: interaction.guild.id,
+                sourceChannelId: interaction.channelId,
+                targetChannelId,
+                expiresAt: Date.now() + 300000
+            });
+
+            await interaction.update({
+                content: `Send your message in ${interaction.channel}. I will turn your next message into the ticket panel and post it in ${targetChannel}.`,
+                components: []
+            });
             return;
         }
 
@@ -456,6 +532,53 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     } catch (error) {
         console.error('Interaction handler error:', error);
+    }
+});
+
+client.on(Events.MessageCreate, async message => {
+    if (message.author.bot || !message.guild) {
+        return;
+    }
+
+    const draft = client.ticketPanelDrafts.get(message.author.id);
+    if (!draft) {
+        return;
+    }
+
+    if (draft.guildId !== message.guild.id || draft.sourceChannelId !== message.channel.id) {
+        return;
+    }
+
+    if (draft.expiresAt < Date.now()) {
+        client.ticketPanelDrafts.delete(message.author.id);
+        const expiredReply = await message.channel.send('Ticket panel setup expired. Use /ticket again.');
+        autoDeleteMessage(expiredReply, 120000);
+        return;
+    }
+
+    const targetChannel = message.guild.channels.cache.get(draft.targetChannelId);
+    if (!targetChannel || targetChannel.type !== ChannelType.GuildText) {
+        client.ticketPanelDrafts.delete(message.author.id);
+        const missingChannelReply = await message.channel.send('I could not find the selected channel. Use /ticket again.');
+        autoDeleteMessage(missingChannelReply, 120000);
+        return;
+    }
+
+    try {
+        await targetChannel.send({
+            embeds: [buildTicketPanelEmbedFromMessage(message)],
+            components: [buildTicketPanelActionRow()]
+        });
+
+        client.ticketPanelDrafts.delete(message.author.id);
+
+        const successReply = await message.channel.send(`Ticket panel posted in ${targetChannel}.`);
+        autoDeleteMessage(successReply, 120000);
+    } catch (error) {
+        client.ticketPanelDrafts.delete(message.author.id);
+        console.error('Ticket panel post failed:', error);
+        const failureReply = await message.channel.send('I could not post the ticket panel there. Check my permissions and use /ticket again.');
+        autoDeleteMessage(failureReply, 120000);
     }
 });
 
