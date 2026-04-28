@@ -135,16 +135,7 @@ function buildTicketPanelActionRow() {
             .setCustomId('create_ticket')
             .setLabel('Create Ticket')
             .setStyle(ButtonStyle.Success)
-            .setEmoji('ðŸŽ«')
-    );
-}
-
-function buildTicketPanelActionRow() {
-    return new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('create_ticket')
-            .setLabel('Create Ticket')
-            .setStyle(ButtonStyle.Success)
+            .setEmoji('🎫')
     );
 }
 

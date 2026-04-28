@@ -72,10 +72,21 @@ module.exports = {
                 .setColor(0x57F287)
                 .setTimestamp();
 
-            await interaction.channel.send({
-                embeds: [completionEmbed],
-                files: [buildTranscriptAttachment(fileName, fileBuffer)]
-            });
+            let dmStatus = '❌ Transcript could not be sent via DM (DMs might be closed).';
+            if (summary.ownerId) {
+                try {
+                    const owner = await interaction.client.users.fetch(summary.ownerId);
+                    await owner.send({
+                        embeds: [completionEmbed],
+                        files: [buildTranscriptAttachment(fileName, fileBuffer)]
+                    });
+                    dmStatus = '📬 Transcript and completion message sent to the ticket owner\'s DMs.';
+                } catch (dmError) {
+                    console.error(`Failed to DM ticket owner (${summary.ownerId}):`, dmError);
+                }
+            } else {
+                dmStatus = '⚠️ Could not find ticket owner ID to send DM.';
+            }
 
             const logResult = await sendTranscriptToLog(
                 interaction.guild,
@@ -96,9 +107,10 @@ module.exports = {
             removeTicketByChannel(configManager, interaction.channel.id);
 
             await interaction.editReply({
-                content: logResult.sent
-                    ? `Transaction marked complete. Transcript sent to the ticket and log channel.${counterResult.updated ? ` Orders completed is now ${counterResult.nextValue}.` : ''} Deleting this ticket in 5 seconds.`
-                    : `Transaction marked complete. Transcript sent here. Log channel is not configured, so it was not copied anywhere else.${counterResult.updated ? ` Orders completed is now ${counterResult.nextValue}.` : ''} Deleting this ticket in 5 seconds.`
+                content: `✅ **Transaction marked complete!**\n\n${dmStatus}\n` +
+                    (logResult.sent ? '📄 Transcript successfully copied to the log channel.\n' : '⚠️ Log channel is not configured, transcript was not archived elsewhere.\n') +
+                    (counterResult.updated ? `📈 Orders completed counter is now **${counterResult.nextValue}**.\n` : '') +
+                    '\nDeleting this ticket and all linked channels in 5 seconds...'
             });
 
             setTimeout(async () => {
