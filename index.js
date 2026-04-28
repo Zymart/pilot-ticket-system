@@ -14,13 +14,21 @@ const {
     EmbedBuilder,
     ButtonBuilder,
     ButtonStyle,
-    MessageFlags,
-    AttachmentBuilder
+    MessageFlags
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const configManager = require('./utils/configManager');
+const {
+    buildTranscriptAttachment,
+    createTranscript,
+    deleteConnectedChannels,
+    getTicketEntryByChannel,
+    isTicketChannel,
+    removeTicketByChannel,
+    sendTranscriptToLog
+} = require('./utils/ticketHelpers');
 
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
@@ -63,6 +71,7 @@ for (const file of commandFiles) {
 
 if (process.env.NODE_ENV === 'production') {
     const rest = new REST({ version: '10' }).setToken(config.token);
+
     (async () => {
         try {
             console.log('Deploying commands...');
@@ -71,8 +80,8 @@ if (process.env.NODE_ENV === 'production') {
                 { body: commands }
             );
             console.log('Commands deployed successfully');
-        } catch (e) {
-            console.error('Deploy failed:', e.message);
+        } catch (error) {
+            console.error('Deploy failed:', error.message);
         }
     })();
 }
@@ -83,20 +92,20 @@ client.once(Events.ClientReady, () => {
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
 
-client.on(Events.Debug, (info) => {
+client.on(Events.Debug, info => {
     console.log('Discord Debug:', info);
 });
 
-client.on(Events.Warn, (info) => {
+client.on(Events.Warn, info => {
     console.log('Discord Warn:', info);
 });
 
-client.on(Events.Error, (error) => {
+client.on(Events.Error, error => {
     console.error('Discord Client Error:', error.message);
     console.error('Error stack:', error.stack);
 });
 
-client.on(Events.ShardError, (error) => {
+client.on(Events.ShardError, error => {
     console.error('WebSocket Error:', error.message);
 });
 
@@ -104,21 +113,42 @@ client.on(Events.Invalidated, () => {
     console.error('Session invalidated!');
 });
 
+function buildCloseActionRow() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('transcript_ticket')
+            .setLabel('Transcript')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('📄'),
+        new ButtonBuilder()
+            .setCustomId('delete_ticket')
+            .setLabel('Delete')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('🗑️')
+    );
+}
+
 async function autoDeleteMessage(message, delayMs = 60000) {
     if (message.components?.length > 0) {
-        const hasTicketButton = message.components.some(row => 
-            row.components.some(btn => btn.customId === 'create_ticket')
+        const hasTicketButton = message.components.some(row =>
+            row.components.some(button => button.customId === 'create_ticket')
         );
-        if (hasTicketButton) return;
+
+        if (hasTicketButton) {
+            return;
+        }
     }
-    
+
     if (message.embeds?.length > 0) {
-        const isPilotwebInfo = message.embeds.some(e => 
-            e.title === '📦 New Web Channel' || e.title === '📋 Channel Info'
+        const isPilotwebInfo = message.embeds.some(embed =>
+            embed.title === '📦 New Web Channel' || embed.title === '📋 Channel Info'
         );
-        if (isPilotwebInfo && message.author.id === client.user.id) return;
+
+        if (isPilotwebInfo && message.author.id === client.user.id) {
+            return;
+        }
     }
-    
+
     setTimeout(() => {
         message.delete().catch(() => {});
     }, delayMs);
@@ -127,29 +157,35 @@ async function autoDeleteMessage(message, delayMs = 60000) {
 client.on(Events.InteractionCreate, async interaction => {
     try {
         if (interaction.isChatInputCommand()) {
-            const cmd = client.commands.get(interaction.commandName);
-            if (!cmd) return;
+            const command = client.commands.get(interaction.commandName);
+            if (!command) {
+                return;
+            }
 
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
-                await cmd.execute(interaction, { configManager });
-                
+                await command.execute(interaction, { configManager });
+
                 if (!['setup', 'ticket'].includes(interaction.commandName)) {
                     const reply = await interaction.fetchReply();
                     autoDeleteMessage(reply, 120000);
                 }
-            } catch (e) {
-                console.error(e);
+            } catch (error) {
+                console.error(error);
                 await interaction.editReply({ content: '❌ Error executing command.' });
             }
+
+            return;
         }
-        else if (interaction.isButton() && interaction.customId === 'create_ticket') {
+
+        if (interaction.isButton() && interaction.customId === 'create_ticket') {
             if (configManager.hasTicket(interaction.user.id)) {
-                return interaction.reply({
+                await interaction.reply({
                     content: '❌ You already have an open ticket. Close it first.',
                     flags: MessageFlags.Ephemeral
                 });
+                return;
             }
 
             const modal = new ModalBuilder()
@@ -187,20 +223,20 @@ client.on(Events.InteractionCreate, async interaction => {
             );
 
             await interaction.showModal(modal);
+            return;
         }
-        else if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
+
+        if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             const robloxUser = interaction.fields.getTextInputValue('roblox_username');
             const buying = interaction.fields.getTextInputValue('buying');
             const game = interaction.fields.getTextInputValue('game');
-
             const cleanName = robloxUser.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
             const channelName = `ticket-${cleanName}`;
 
             try {
                 const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
-                
                 const permissionOverwrites = [
                     {
                         id: interaction.guild.id,
@@ -220,23 +256,25 @@ client.on(Events.InteractionCreate, async interaction => {
                 if (guildConfig?.supportRoleIds?.length > 0) {
                     for (const roleId of guildConfig.supportRoleIds) {
                         const role = interaction.guild.roles.cache.get(roleId);
-                        if (role) {
-                            permissionOverwrites.push({
-                                id: roleId,
-                                allow: [
-                                    PermissionFlagsBits.ViewChannel,
-                                    PermissionFlagsBits.SendMessages,
-                                    PermissionFlagsBits.ReadMessageHistory
-                                ]
-                            });
+                        if (!role) {
+                            continue;
                         }
+
+                        permissionOverwrites.push({
+                            id: roleId,
+                            allow: [
+                                PermissionFlagsBits.ViewChannel,
+                                PermissionFlagsBits.SendMessages,
+                                PermissionFlagsBits.ReadMessageHistory
+                            ]
+                        });
                     }
                 }
 
                 const channelOptions = {
                     name: channelName,
                     type: ChannelType.GuildText,
-                    permissionOverwrites: permissionOverwrites
+                    permissionOverwrites
                 };
 
                 if (guildConfig?.ticketCategoryId) {
@@ -248,13 +286,13 @@ client.on(Events.InteractionCreate, async interaction => {
 
                 const ticketChannel = await interaction.guild.channels.create(channelOptions);
 
-                await configManager.saveTicket(interaction.user.id, { 
-                    channelId: ticketChannel.id, 
+                await configManager.saveTicket(interaction.user.id, {
+                    channelId: ticketChannel.id,
                     robloxUsername: robloxUser,
                     userId: interaction.user.id,
                     userTag: interaction.user.tag,
-                    buying: buying,
-                    game: game,
+                    buying,
+                    game,
                     status: 'open',
                     createdAt: new Date().toISOString()
                 });
@@ -270,14 +308,13 @@ client.on(Events.InteractionCreate, async interaction => {
                     .setColor(0x5865F2)
                     .setTimestamp();
 
-                const closeRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`close_${interaction.user.id}`)
-                            .setLabel('Close Ticket')
-                            .setStyle(ButtonStyle.Danger)
-                            .setEmoji('🔒')
-                    );
+                const closeRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`close_${interaction.user.id}`)
+                        .setLabel('Close Ticket')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('🔒')
+                );
 
                 let pingContent = `<@${interaction.user.id}>`;
                 if (guildConfig?.supportRoleIds?.length > 0) {
@@ -294,23 +331,19 @@ client.on(Events.InteractionCreate, async interaction => {
                 await interaction.editReply({
                     content: `✅ Ticket created: ${ticketChannel}\n**Roblox:** ${robloxUser}`
                 });
-
-            } catch (err) {
-                console.error('Ticket creation failed:', err);
+            } catch (error) {
+                console.error('Ticket creation failed:', error);
                 await interaction.editReply({ content: '❌ Failed to create ticket. Check bot permissions.' });
             }
+
+            return;
         }
-        else if (interaction.isButton() && interaction.customId.startsWith('close_')) {
+
+        if (interaction.isButton() && interaction.customId.startsWith('close_')) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
-                const ticket = configManager.getTicket(interaction.user.id) || 
-                    Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
-                
-                if (ticket) {
-                    const userId = Array.isArray(ticket) ? ticket[0] : interaction.user.id;
-                    await configManager.closeTicket(userId, { status: 'closed' });
-                }
+                removeTicketByChannel(configManager, interaction.channel.id);
 
                 await interaction.channel.permissionOverwrites.set([
                     { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] }
@@ -319,26 +352,12 @@ client.on(Events.InteractionCreate, async interaction => {
                 const newName = `closed-${interaction.channel.name}`.slice(0, 100);
                 await interaction.channel.setName(newName);
 
-                const actionRow = new ActionRowBuilder()
-                    .addComponents(
-                        new ButtonBuilder()
-                            .setCustomId('transcript_ticket')
-                            .setLabel('Transcript')
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji('📄'),
-                        new ButtonBuilder()
-                            .setCustomId('delete_ticket')
-                            .setLabel('Delete')
-                            .setStyle(ButtonStyle.Danger)
-                            .setEmoji('🗑️')
-                    );
-
-                const closeMsg = await interaction.editReply({
+                const closeMessage = await interaction.editReply({
                     content: '🔒 Ticket closed.',
-                    components: [actionRow]
+                    components: [buildCloseActionRow()]
                 });
 
-                autoDeleteMessage(closeMsg, 300000);
+                autoDeleteMessage(closeMessage, 300000);
 
                 await interaction.channel.send({
                     embeds: [{
@@ -348,94 +367,54 @@ client.on(Events.InteractionCreate, async interaction => {
                         timestamp: new Date()
                     }]
                 });
-
-            } catch (err) {
-                console.error('Close ticket failed:', err);
+            } catch (error) {
+                console.error('Close ticket failed:', error);
                 await interaction.editReply({ content: '❌ Error closing ticket.' });
             }
+
+            return;
         }
-        else if (interaction.isButton() && interaction.customId === 'transcript_ticket') {
+
+        if (interaction.isButton() && interaction.customId === 'transcript_ticket') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
-                const messages = await interaction.channel.messages.fetch({ limit: 100 });
-                const sortedMessages = Array.from(messages.values()).reverse();
+                const ticketEntry = getTicketEntryByChannel(configManager, interaction.channel.id);
+                const ticketData = ticketEntry ? ticketEntry[1] : null;
+                const { fileName, fileBuffer } = await createTranscript(
+                    interaction.channel,
+                    ticketData,
+                    interaction.user.tag
+                );
 
-                let transcript = `TRANSCRIPT FOR ${interaction.channel.name}\n`;
-                transcript += `Generated: ${new Date().toISOString()}\n`;
-                transcript += `Generated by: ${interaction.user.tag}\n`;
-                transcript += `=====================================\n\n`;
+                await sendTranscriptToLog(
+                    interaction.guild,
+                    configManager,
+                    fileName,
+                    fileBuffer,
+                    `📄 Transcript for ${interaction.channel.name} generated by ${interaction.user.tag}`
+                );
 
-                for (const msg of sortedMessages) {
-                    const time = msg.createdAt.toISOString();
-                    const author = msg.author.tag;
-                    const content = msg.content || '[No text]';
-                    const attachments = msg.attachments.size > 0 ? 
-                        `[Attachments: ${msg.attachments.map(a => a.url).join(', ')}]` : '';
-                    
-                    transcript += `[${time}] ${author}: ${content} ${attachments}\n`;
-                    
-                    if (msg.embeds.length > 0) {
-                        transcript += `[Embed: ${msg.embeds[0].title || 'No title'}]\n`;
-                    }
-                }
-
-                const fileName = `transcript-${interaction.channel.name}-${Date.now()}.txt`;
-                const fileBuffer = Buffer.from(transcript, 'utf-8');
-
-                const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
-                const logChannelId = guildConfig?.logChannelId;
-
-                if (logChannelId) {
-                    const logChannel = interaction.guild.channels.cache.get(logChannelId);
-                    if (logChannel) {
-                        const attachment = new AttachmentBuilder(fileBuffer, { name: fileName });
-                        await logChannel.send({
-                            content: `📄 Transcript for ${interaction.channel.name} generated by ${interaction.user.tag}`,
-                            files: [attachment]
-                        });
-                    }
-                }
-
-                const attachment = new AttachmentBuilder(fileBuffer, { name: fileName });
                 const reply = await interaction.editReply({
                     content: '✅ Transcript generated!',
-                    files: [attachment]
+                    files: [buildTranscriptAttachment(fileName, fileBuffer)]
                 });
 
                 autoDeleteMessage(reply, 120000);
-
-            } catch (err) {
-                console.error('Transcript failed:', err);
+            } catch (error) {
+                console.error('Transcript failed:', error);
                 await interaction.editReply({ content: '❌ Failed to generate transcript.' });
             }
+
+            return;
         }
-        else if (interaction.isButton() && interaction.customId === 'delete_ticket') {
+
+        if (interaction.isButton() && interaction.customId === 'delete_ticket') {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
-                const channelName = interaction.channel.name;
-                const cleanName = channelName.replace('closed-', '').replace('ticket-', '');
-                
-                const pilotwebChannels = interaction.guild.channels.cache.filter(ch => 
-                    ch.name.includes(cleanName) && ch.name !== channelName && ch.type === ChannelType.GuildText
-                );
-
-                let deletedCount = 0;
-                for (const [id, ch] of pilotwebChannels) {
-                    try {
-                        await ch.delete('Connected ticket deleted');
-                        deletedCount++;
-                    } catch (err) {
-                        console.error(`Failed to delete pilotweb ${ch.name}:`, err);
-                    }
-                }
-
-                const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
-                if (ticketEntry) {
-                    const [userId, ticketData] = ticketEntry;
-                    await configManager.closeTicket(userId, { ...ticketData, status: 'deleted' });
-                }
+                const deletedCount = await deleteConnectedChannels(interaction.channel, configManager);
+                removeTicketByChannel(configManager, interaction.channel.id);
 
                 await interaction.editReply({
                     content: `🗑️ Deleting ticket${deletedCount > 0 ? ` and ${deletedCount} connected channel(s)` : ''}...`
@@ -444,62 +423,55 @@ client.on(Events.InteractionCreate, async interaction => {
                 setTimeout(() => {
                     interaction.channel.delete('Ticket deleted by admin').catch(console.error);
                 }, 2000);
-
-            } catch (err) {
-                console.error('Delete ticket failed:', err);
+            } catch (error) {
+                console.error('Delete ticket failed:', error);
                 await interaction.editReply({ content: '❌ Error deleting ticket.' });
             }
+
+            return;
         }
-        else if (interaction.isButton() && interaction.customId.startsWith('copy_webhook_')) {
+
+        if (interaction.isButton() && interaction.customId.startsWith('copy_webhook_')) {
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            
+
             try {
                 const webhooks = await interaction.channel.fetchWebhooks();
-                const webhook = webhooks.find(wh => wh.id === interaction.customId.replace('copy_webhook_', ''));
-                
-                if (webhook) {
-                    const reply = await interaction.editReply({
-                        content: `📋 **Click to copy:**\n\`\`\`${webhook.url}\`\`\``
-                    });
-                    
-                    autoDeleteMessage(reply, 60000);
-                } else {
+                const webhookId = interaction.customId.replace('copy_webhook_', '');
+                const webhook = webhooks.find(candidate => candidate.id === webhookId);
+
+                if (!webhook) {
                     await interaction.editReply({ content: '❌ Webhook not found.' });
+                    return;
                 }
-            } catch (err) {
-                console.error('Copy webhook failed:', err);
+
+                const reply = await interaction.editReply({
+                    content: `📋 **Click to copy:**\n\`\`\`${webhook.url}\`\`\``
+                });
+
+                autoDeleteMessage(reply, 60000);
+            } catch (error) {
+                console.error('Copy webhook failed:', error);
                 await interaction.editReply({ content: '❌ Failed to retrieve webhook URL.' });
             }
         }
-
-    } catch (err) {
-        console.error('Interaction handler error:', err);
+    } catch (error) {
+        console.error('Interaction handler error:', error);
     }
 });
 
 client.on(Events.ChannelDelete, async channel => {
-    if (!channel.name.startsWith('ticket-') && !channel.name.startsWith('closed-')) return;
-    
-    let ticketUserId = null;
-    let ticketData = null;
-    
-    for (const [userId, data] of configManager.tickets) {
-        if (data.channelId === channel.id) {
-            ticketUserId = userId;
-            ticketData = data;
-            break;
-        }
+    if (!isTicketChannel(channel)) {
+        return;
     }
-    
-    if (!ticketUserId) return;
-    
-    await configManager.closeTicket(ticketUserId, {
-        ...ticketData,
-        status: 'deleted',
-        deletedAt: new Date().toISOString()
-    });
-    
-    console.log(`Cleaned up ticket for user ${ticketUserId}`);
+
+    const ticketEntry = getTicketEntryByChannel(configManager, channel.id);
+    if (!ticketEntry) {
+        return;
+    }
+
+    const [userId] = ticketEntry;
+    configManager.closeTicket(userId);
+    console.log(`Cleaned up ticket for user ${userId}`);
 });
 
 console.log('Starting bot login...');
@@ -516,9 +488,9 @@ const loginTimeout = setTimeout(() => {
 client.login(config.token).then(() => {
     clearTimeout(loginTimeout);
     console.log('✅ Login successful');
-}).catch(err => {
+}).catch(error => {
     clearTimeout(loginTimeout);
-    console.error('❌ Login failed:', err.message);
-    console.error('Error code:', err.code);
-    console.error('Full error:', err);
+    console.error('❌ Login failed:', error.message);
+    console.error('Error code:', error.code);
+    console.error('Full error:', error);
 });
