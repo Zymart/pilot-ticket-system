@@ -212,12 +212,16 @@ client.on(Events.InteractionCreate, async interaction => {
                 return;
             }
 
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            const shouldDeferReply = command.deferReply !== false;
+
+            if (shouldDeferReply) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            }
 
             try {
                 await command.execute(interaction, { configManager });
 
-                if (!['setup', 'ticket'].includes(interaction.commandName)) {
+                if (shouldDeferReply && !['setup', 'ticket'].includes(interaction.commandName)) {
                     const reply = await interaction.fetchReply();
                     autoDeleteMessage(reply, 120000);
                 }

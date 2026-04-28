@@ -3,10 +3,12 @@ const {
     ActionRowBuilder,
     ChannelSelectMenuBuilder,
     ChannelType,
-    PermissionFlagsBits
+    PermissionFlagsBits,
+    MessageFlags
 } = require('discord.js');
 
 module.exports = {
+    deferReply: false,
     data: new SlashCommandBuilder()
         .setName('ticket')
         .setDescription('Choose a channel, then send the message to turn into a ticket panel')
@@ -22,9 +24,10 @@ module.exports = {
                 .setMaxValues(1)
         );
 
-        await interaction.editReply({
+        await interaction.reply({
             content: 'Choose the channel where I should post the ticket panel.',
-            components: [row]
+            components: [row],
+            flags: MessageFlags.Ephemeral
         });
     }
 };
