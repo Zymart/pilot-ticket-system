@@ -139,6 +139,15 @@ function buildTicketPanelActionRow() {
     );
 }
 
+function buildTicketPanelActionRow() {
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('create_ticket')
+            .setLabel('Create Ticket')
+            .setStyle(ButtonStyle.Success)
+    );
+}
+
 function truncateText(text, limit) {
     if (!text || text.length <= limit) {
         return text;
