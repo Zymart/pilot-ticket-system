@@ -554,8 +554,9 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
+    client.ticketPanelDrafts.delete(message.author.id);
+
     if (draft.expiresAt < Date.now()) {
-        client.ticketPanelDrafts.delete(message.author.id);
         const expiredReply = await message.channel.send('Ticket panel setup expired. Use /ticket again.');
         autoDeleteMessage(expiredReply, 120000);
         return;
@@ -563,7 +564,6 @@ client.on(Events.MessageCreate, async message => {
 
     const targetChannel = message.guild.channels.cache.get(draft.targetChannelId);
     if (!targetChannel || targetChannel.type !== ChannelType.GuildText) {
-        client.ticketPanelDrafts.delete(message.author.id);
         const missingChannelReply = await message.channel.send('I could not find the selected channel. Use /ticket again.');
         autoDeleteMessage(missingChannelReply, 120000);
         return;
@@ -574,8 +574,6 @@ client.on(Events.MessageCreate, async message => {
             embeds: [buildTicketPanelEmbedFromMessage(message)],
             components: [buildTicketPanelActionRow()]
         });
-
-        client.ticketPanelDrafts.delete(message.author.id);
         
         await message.delete().catch(() => {});
         
@@ -584,7 +582,6 @@ client.on(Events.MessageCreate, async message => {
             if (setupMsg) await setupMsg.delete().catch(() => {});
         }
     } catch (error) {
-        client.ticketPanelDrafts.delete(message.author.id);
         console.error('Ticket panel post failed:', error);
         const failureReply = await message.channel.send('I could not post the ticket panel there. Check my permissions and use /ticket again.');
         autoDeleteMessage(failureReply, 120000);
