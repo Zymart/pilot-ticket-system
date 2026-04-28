@@ -249,7 +249,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 guildId: interaction.guild.id,
                 sourceChannelId: interaction.channelId,
                 targetChannelId,
-                expiresAt: Date.now() + 300000
+                expiresAt: Date.now() + 300000,
+                setupMessageId: interaction.message.id
             });
 
             await interaction.update({
@@ -575,9 +576,13 @@ client.on(Events.MessageCreate, async message => {
         });
 
         client.ticketPanelDrafts.delete(message.author.id);
-
-        const successReply = await message.channel.send(`Ticket panel posted in ${targetChannel}.`);
-        autoDeleteMessage(successReply, 120000);
+        
+        await message.delete().catch(() => {});
+        
+        if (draft.setupMessageId) {
+            const setupMsg = await message.channel.messages.fetch(draft.setupMessageId).catch(() => null);
+            if (setupMsg) await setupMsg.delete().catch(() => {});
+        }
     } catch (error) {
         client.ticketPanelDrafts.delete(message.author.id);
         console.error('Ticket panel post failed:', error);
