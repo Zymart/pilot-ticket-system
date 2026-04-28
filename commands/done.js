@@ -10,8 +10,7 @@ const {
     incrementCounterChannel,
     isTicketChannel,
     removeTicketByChannel,
-    resolveTicketSummary,
-    sendTranscriptToLog
+    resolveTicketSummary
 } = require('../utils/ticketHelpers');
 
 const FACEBOOK_VOUCH_URL = 'https://www.facebook.com/share/v/1HC628gfWL/';
@@ -67,7 +66,7 @@ module.exports = {
                     { name: 'Buying', value: summary.buying, inline: true },
                     { name: 'Game', value: summary.game, inline: true },
                     { name: 'Completed By', value: interaction.user.tag, inline: true },
-                    { name: 'Transcript', value: 'Attached below and copied to the log channel if one is configured.', inline: false }
+                    { name: 'Transcript', value: 'Attached below.', inline: false }
                 )
                 .setColor(0x57F287)
                 .setTimestamp();
@@ -88,14 +87,6 @@ module.exports = {
                 dmStatus = '⚠️ Could not find ticket owner ID to send DM.';
             }
 
-            const logResult = await sendTranscriptToLog(
-                interaction.guild,
-                configManager,
-                fileName,
-                fileBuffer,
-                `Transaction completed in ${interaction.channel} by ${interaction.user.tag}`
-            );
-
             const counterResult = await incrementCounterChannel(
                 interaction.guild,
                 ORDERS_COMPLETED_CHANNEL_ID
@@ -108,7 +99,6 @@ module.exports = {
 
             await interaction.editReply({
                 content: `✅ **Transaction marked complete!**\n\n${dmStatus}\n` +
-                    (logResult.sent ? '📄 Transcript successfully copied to the log channel.\n' : '⚠️ Log channel is not configured, transcript was not archived elsewhere.\n') +
                     (counterResult.updated ? `📈 Orders completed counter is now **${counterResult.nextValue}**.\n` : '') +
                     '\nDeleting this ticket and all linked channels in 5 seconds...'
             });

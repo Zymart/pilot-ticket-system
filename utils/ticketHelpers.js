@@ -127,28 +127,6 @@ async function createTranscript(channel, ticketData, generatedByTag) {
     return { fileName, fileBuffer };
 }
 
-async function sendTranscriptToLog(guild, configManager, fileName, fileBuffer, content) {
-    const guildConfig = await configManager.getGuildConfig(guild.id);
-    const logChannelId = guildConfig?.logChannelId;
-
-    if (!logChannelId) {
-        return { sent: false, reason: 'log_channel_not_configured' };
-    }
-
-    const logChannel = guild.channels.cache.get(logChannelId);
-    if (!logChannel || typeof logChannel.send !== 'function') {
-        return { sent: false, reason: 'log_channel_not_found' };
-    }
-
-    const attachment = new AttachmentBuilder(fileBuffer, { name: fileName });
-    await logChannel.send({
-        content,
-        files: [attachment]
-    });
-
-    return { sent: true, channelId: logChannelId };
-}
-
 async function incrementCounterChannel(guild, channelId) {
     const counterChannel = guild.channels.cache.get(channelId);
 
@@ -234,6 +212,5 @@ module.exports = {
     incrementCounterChannel,
     isTicketChannel,
     removeTicketByChannel,
-    resolveTicketSummary,
-    sendTranscriptToLog
+    resolveTicketSummary
 };

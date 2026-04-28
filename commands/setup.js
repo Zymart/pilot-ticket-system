@@ -27,19 +27,12 @@ module.exports = {
                 .setName('support_role_ids')
                 .setDescription('Role IDs that can view all tickets (comma separated)')
                 .setRequired(false)
-        )
-        .addStringOption(option =>
-            option
-                .setName('log_channel_id')
-                .setDescription('Channel ID to log ticket events')
-                .setRequired(false)
         ),
 
     async execute(interaction, { configManager }) {
         const categoryId = interaction.options.getString('ticket_category_id');
         const pilotChannelId = interaction.options.getString('pilot_channel_id');
         const supportRoleIds = interaction.options.getString('support_role_ids');
-        const logChannelId = interaction.options.getString('log_channel_id');
 
         const category = interaction.guild.channels.cache.get(categoryId);
         if (!category || category.type !== ChannelType.GuildCategory) {
@@ -52,7 +45,6 @@ module.exports = {
             ticketCategoryId: categoryId,
             pilotChannelId: pilotChannelId || null,
             supportRoleIds: supportRoleIds ? supportRoleIds.split(',').map(id => id.trim()) : [],
-            logChannelId: logChannelId || null,
             updatedBy: interaction.user.id,
             updatedByTag: interaction.user.tag
         };
@@ -62,7 +54,6 @@ module.exports = {
         let replyContent = `✅ **Setup complete!**\n\n**Ticket Category:** ${category.name} (\`${categoryId}\`)`;
         if (pilotChannelId) replyContent += `\n**Pilot Category:** \`${pilotChannelId}\``;
         if (supportRoleIds) replyContent += `\n**Support Roles:** ${supportRoleIds}`;
-        if (logChannelId) replyContent += `\n**Log Channel:** \`${logChannelId}\``;
 
         await interaction.editReply({ content: replyContent });
     }
