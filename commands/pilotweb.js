@@ -8,6 +8,7 @@ const {
     ButtonBuilder,
     ButtonStyle
 } = require('discord.js');
+const config = require('../config');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -28,7 +29,7 @@ module.exports = {
             });
         }
 
-        const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
+        const guildConfig = config.system;
         
         if (!guildConfig?.pilotChannelId) {
             return await interaction.editReply({

@@ -62,6 +62,7 @@ const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('
 const commands = [];
 
 for (const file of commandFiles) {
+    if (file === 'setup.js') continue;
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
     client.commands.set(command.data.name, command);
@@ -316,7 +317,7 @@ client.on(Events.InteractionCreate, async interaction => {
             const channelName = `ticket-${cleanName}`;
 
             try {
-                const guildConfig = await configManager.getGuildConfig(interaction.guild.id);
+                const guildConfig = config.system;
                 const permissionOverwrites = [
                     {
                         id: interaction.guild.id,
@@ -615,6 +616,7 @@ client.on(Events.MessageCreate, async message => {
 
     try {
         await targetChannel.send({
+            content: '@everyone',
             embeds: [buildTicketPanelEmbedFromMessage(message)],
             components: [buildTicketPanelActionRow()]
         });

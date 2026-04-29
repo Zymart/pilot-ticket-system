@@ -2,6 +2,7 @@ const {
     AttachmentBuilder,
     ChannelType
 } = require('discord.js');
+const config = require('../config');
 
 function isTicketChannel(channel) {
     return Boolean(channel?.name) && (
@@ -174,7 +175,7 @@ function removeTicketByChannel(configManager, channelId) {
 }
 
 async function deleteConnectedChannels(channel, configManager) {
-    const guildConfig = await configManager.getGuildConfig(channel.guild.id);
+    const guildConfig = config.system;
     const pilotCategoryId = guildConfig?.pilotChannelId || null;
     const cleanName = channel.name.replace('closed-', '').replace('ticket-', '');
 
