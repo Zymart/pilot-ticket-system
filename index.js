@@ -130,6 +130,11 @@ async function checkAndCleanOldPosts() {
                     const message = await channel.messages.fetch(messageId).catch(() => null);
                     if (message) {
                         await message.delete();
+                        
+                        const user = await client.users.fetch(postData.userId).catch(() => null);
+                        if (user) {
+                            await user.send(`📦 Your product post for **${postData.productName || 'Unknown Product'}** has expired and was removed from the marketplace.`).catch(() => {});
+                        }
                         console.log(`Deleted old post message ${messageId} in channel ${postData.channelId}`);
                     } else {
                         console.log(`Old post message ${messageId} not found in channel ${postData.channelId}, removing from storage.`);
@@ -600,14 +605,16 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
                 return await interaction.editReply({ content: '❌ Invalid price. Please enter a valid number (e.g., 10.99).' });
             }
 
+            const deletionTimestamp = Date.now() + (3 * 24 * 60 * 60 * 1000); // 3 days from now
             const postEmbed = new EmbedBuilder()
                 .setTitle(`📦 ${productName}`)
                 .setColor(0x9B59B6) // Purple theme
                 .addFields(
                     { name: '💵 Price', value: `**${currencySymbol}${parsedPrice.toFixed(2)}**`, inline: true },
                     { name: '🪙 Currency', value: `\`${currencyName}\``, inline: true },
-                    { name: '👤 Seller', value: `<@${interaction.user.id}>`, inline: true },
-                    { name: '📝 Description', value: productDescription }
+                    { name: '👤 Seller', value: `<@${interaction.user.id}>`, inline: false },
+                    { name: '⏳ Expires', value: `<t:${Math.floor(deletionTimestamp / 1000)}:R>`, inline: true },
+                    { name: ' Description', value: productDescription }
                 )
                 .setTimestamp();
 
@@ -634,9 +641,13 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
                     embeds: [postEmbed],
                     components: [postRow]
                 }); 
-                const deletionTimestamp = Date.now() + (3 * 24 * 60 * 60 * 1000); // 3 days from now
-                configManager.savePost(sentMessage.id, { channelId: targetChannel.id, deletionTimestamp });
-                console.log(`Saved post ${sentMessage.id} for deletion at ${new Date(deletionTimestamp).toISOString()}`);
+                
+                configManager.savePost(sentMessage.id, { 
+                    channelId: targetChannel.id, 
+                    deletionTimestamp,
+                    userId: interaction.user.id,
+                    productName: productName
+                });
                 const reply = await interaction.editReply({
                     content: `✅ Successfully posted your product in ${targetChannel}!`
                 });

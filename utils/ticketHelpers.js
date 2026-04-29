@@ -52,6 +52,7 @@ async function resolveTicketSummary(configManager, channel) {
     
     const ownerValue = isTrade ? embed.description.split('\n')[0] : (fields['Ticket Owner'] || fields['Discord'] || '');
     const sellerValue = isTrade ? embed.description.split('\n')[1] : null;
+    const productMatch = isTrade ? embed.description.match(/Product: \*\*(.+)\*\*/) : null;
 
     const ownerIdMatch = ownerValue.match(/<@(\d+)>/);
     const ownerTagMatch = ownerValue.match(/\(([^)]+)\)/);
@@ -61,7 +62,7 @@ async function resolveTicketSummary(configManager, channel) {
         ownerId: ownerIdMatch?.[1] || null,
         ownerTag: ownerTagMatch?.[1] || 'Unknown',
         robloxUsername: fields['Roblox User'] || 'Unknown',
-        buying: fields['Buying'] || 'Unknown',
+        buying: isTrade ? (productMatch?.[1] || 'Unknown') : (fields['Buying'] || 'Unknown'),
         game: fields['Game'] || 'Unknown',
         channelName: channel?.name || 'unknown-channel',
         sellerId: sellerIdMatch?.[1] || null,
