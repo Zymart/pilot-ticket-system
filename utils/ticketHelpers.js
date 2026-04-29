@@ -7,7 +7,8 @@ const config = require('../config');
 function isTicketChannel(channel) {
     return Boolean(channel?.name) && (
         channel.name.startsWith('ticket-') ||
-        channel.name.startsWith('closed-')
+        channel.name.startsWith('closed-') ||
+        channel.name.startsWith('trade-')
     );
 }
 
@@ -35,17 +36,26 @@ async function resolveTicketSummary(configManager, channel) {
     const messages = await channel.messages.fetch({ limit: 100 });
     const ticketMessage = Array.from(messages.values())
         .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-        .find(message => message.embeds.some(embed => embed.title === '🎫 New Ticket'));
+        .find(message => message.embeds.some(embed => 
+            embed.title === '🎫 New Ticket' || embed.title === '🤝 New Trade Session'
+        ));
 
     if (!ticketMessage) {
         return getTicketSummary(null, channel);
     }
 
-    const embed = ticketMessage.embeds.find(entry => entry.title === '🎫 New Ticket');
+    const embed = ticketMessage.embeds.find(entry => 
+        entry.title === '🎫 New Ticket' || entry.title === '🤝 New Trade Session'
+    );
+    const isTrade = embed.title === '🤝 New Trade Session';
     const fields = Object.fromEntries((embed?.fields || []).map(field => [field.name, field.value]));
-    const ownerValue = fields['Ticket Owner'] || fields['Discord'] || '';
+    
+    const ownerValue = isTrade ? embed.description.split('\n')[0] : (fields['Ticket Owner'] || fields['Discord'] || '');
+    const sellerValue = isTrade ? embed.description.split('\n')[1] : null;
+
     const ownerIdMatch = ownerValue.match(/<@(\d+)>/);
     const ownerTagMatch = ownerValue.match(/\(([^)]+)\)/);
+    const sellerIdMatch = sellerValue?.match(/<@(\d+)>/);
 
     return {
         ownerId: ownerIdMatch?.[1] || null,
@@ -53,7 +63,9 @@ async function resolveTicketSummary(configManager, channel) {
         robloxUsername: fields['Roblox User'] || 'Unknown',
         buying: fields['Buying'] || 'Unknown',
         game: fields['Game'] || 'Unknown',
-        channelName: channel?.name || 'unknown-channel'
+        channelName: channel?.name || 'unknown-channel',
+        sellerId: sellerIdMatch?.[1] || null,
+        isTrade: isTrade
     };
 }
 

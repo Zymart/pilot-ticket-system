@@ -16,6 +16,7 @@ const {
 const FACEBOOK_VOUCH_URL = 'https://www.facebook.com/share/v/1HC628gfWL/';
 const VOUCH_CHANNEL_ID = '1381279964300841062';
 const ORDERS_COMPLETED_CHANNEL_ID = '1498621701670568046';
+const TRADE_LOG_CHANNEL_ID = '1381279878313148546';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -50,7 +51,27 @@ module.exports = {
 
             const completionEmbed = new EmbedBuilder()
                 .setTitle('Transaction Complete')
-                .setDescription(
+                .setTimestamp();
+
+            if (summary.isTrade) {
+                completionEmbed.setDescription(
+                    [
+                        'Thank you for using our trading service!',
+                        '',
+                        `Please Vouch us in ${vouchDestination}`,
+                        '',
+                        'This ticket and its connected channel will close in 5 seconds.'
+                    ].join('\n')
+                )
+                .addFields(
+                    { name: 'Buyer', value: ownerMention, inline: true },
+                    { name: 'Seller', value: summary.sellerId ? `<@${summary.sellerId}>` : 'Unknown', inline: true },
+                    { name: 'Product', value: summary.buying, inline: false },
+                    { name: 'Completed By', value: interaction.user.tag, inline: true }
+                )
+                .setColor(0x9B59B6); // Purple for trade
+            } else {
+                completionEmbed.setDescription(
                     [
                         'Please Vouch us In Our Facebook Post:',
                         FACEBOOK_VOUCH_URL,
@@ -65,11 +86,12 @@ module.exports = {
                     { name: 'Roblox Username', value: summary.robloxUsername, inline: true },
                     { name: 'Buying', value: summary.buying, inline: true },
                     { name: 'Game', value: summary.game, inline: true },
-                    { name: 'Completed By', value: interaction.user.tag, inline: true },
-                    { name: 'Transcript', value: 'Attached below.', inline: false }
+                    { name: 'Completed By', value: interaction.user.tag, inline: true }
                 )
-                .setColor(0x57F287)
-                .setTimestamp();
+                .setColor(0x57F287); // Green for pilot
+            }
+
+            completionEmbed.addFields({ name: 'Transcript', value: 'Attached below.', inline: false });
 
             let dmStatus = '❌ Transcript could not be sent via DM (DMs might be closed).';
             if (summary.ownerId) {
@@ -85,6 +107,41 @@ module.exports = {
                 }
             } else {
                 dmStatus = '⚠️ Could not find ticket owner ID to send DM.';
+            }
+
+            // If it's a trade, DM the seller too and log to the trade channel
+            if (summary.isTrade) {
+                if (summary.sellerId) {
+                    try {
+                        const seller = await interaction.client.users.fetch(summary.sellerId);
+                        await seller.send({
+                            embeds: [completionEmbed],
+                            files: [buildTranscriptAttachment(fileName, fileBuffer)]
+                        });
+                        dmStatus += '\n📬 Transcript also sent to the seller\'s DMs.';
+                    } catch (e) {
+                        console.error('Failed to DM seller:', e);
+                    }
+                }
+
+                const tradeLogChannel = interaction.guild.channels.cache.get(TRADE_LOG_CHANNEL_ID);
+                if (tradeLogChannel) {
+                    const logEmbed = new EmbedBuilder()
+                        .setTitle('📝 Trade Transaction Log')
+                        .setColor(0x9B59B6)
+                        .addFields(
+                            { name: 'Buyer', value: ownerMention, inline: true },
+                            { name: 'Seller', value: summary.sellerId ? `<@${summary.sellerId}>` : 'Unknown', inline: true },
+                            { name: 'Product', value: summary.buying, inline: false },
+                            { name: 'Completed By', value: interaction.user.tag, inline: true }
+                        )
+                        .setTimestamp();
+                    
+                    await tradeLogChannel.send({ 
+                        embeds: [logEmbed],
+                        files: [buildTranscriptAttachment(fileName, fileBuffer)]
+                    });
+                }
             }
 
             const counterResult = await incrementCounterChannel(

@@ -95,7 +95,13 @@ async function sendPostGuide(channel) {
             { name: 'Step 1', value: 'Type the command `/post` in any channel.' },
             { name: 'Step 2', value: 'Fill in the **Product Name**, **Description**, and **Price**.' },
             { name: 'Step 3', value: 'Select your preferred **Currency** (Dollars or Pesos).' },
-            { name: 'Step 4', value: '(Optional) Provide an **Image URL** to show your product.' }
+            { name: 'Step 4', value: '(Optional) Provide an **Image URL** to show your product.' },
+            { 
+                name: '🖼️ How to get an Image URL', 
+                value: '• **From Discord:** Upload your image to any channel, right-click (or long-press) the image, and select **"Copy Link"**.\n' +
+                       '• **From Web:** Right-click any image online and select **"Copy Image Address"**.\n' +
+                       '• **Tip:** Make sure the link ends in `.png`, `.jpg`, or `.webp` so Discord can display it!'
+            }
         )
         .setFooter({ text: 'Your post will be sent to the official marketplace channel automatically.' })
         .setColor(0x5865F2);
@@ -709,15 +715,24 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
                     await interaction.user.send(tradeRules);
                 } catch (e) { console.error('DM Buyer Error:', e); }
 
+                const closeRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`close_${interaction.user.id}`)
+                        .setLabel('Close Ticket')
+                        .setStyle(ButtonStyle.Danger)
+                        .setEmoji('🔒')
+                );
+
                 await tradeChannel.send({
-                    content: `<@${interaction.user.id}>, please check your DMs for the Trading Rules.`,
+                    content: `<@${interaction.user.id}>, please check your DMs for the Trading Rules.\n\n**When your transaction is done please type /done**`,
                     embeds: [
                         new EmbedBuilder()
                             .setTitle('🤝 New Trade Session')
                             .setDescription(`Buyer: <@${interaction.user.id}>\nSeller: <@${sellerId}>\nProduct: **${productName}**`)
                             .setColor(0x9B59B6)
                             .setTimestamp()
-                    ]
+                    ],
+                    components: [closeRow]
                 });
 
                 await interaction.editReply(`✅ Trade ticket created: ${tradeChannel}`);
