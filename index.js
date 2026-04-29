@@ -458,8 +458,17 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
                     console.error('Failed to send Rules DM:', dmError);
                 }
 
+                const rulesRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('acknowledge_rules')
+                        .setLabel('I Have Read the Rules')
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('✅')
+                );
+
                 await ticketChannel.send({
-                    content: `Rules for Pilot\n<@${interaction.user.id}>, please check your dms.`
+                    content: `Rules for Pilot\n<@${interaction.user.id}>, please check your dms.\n\nPlease click the button below if u already read the rules so it will not send again`,
+                    components: [rulesRow]
                 });
 
                 await interaction.editReply({
@@ -506,6 +515,16 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
                 await interaction.editReply({ content: '❌ Error closing ticket.' });
             }
 
+            return;
+        }
+
+        if (interaction.isButton() && interaction.customId === 'acknowledge_rules') {
+            await interaction.reply({
+                content: '✅ Rules acknowledged. Thank you!',
+                flags: MessageFlags.Ephemeral
+            });
+            
+            await interaction.message.delete().catch(() => {});
             return;
         }
 
