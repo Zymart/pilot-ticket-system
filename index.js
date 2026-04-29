@@ -408,6 +408,59 @@ client.on(Events.InteractionCreate, async interaction => {
                     components: [closeRow]
                 });
 
+                const pilotRules = `\`\`\`RULES
+
+Never use account while pilot is on-going!
+
+Please coordinate with the guidelines.
+
+If you think your pilot is done, coordinate with the owner before opening your account.
+
+Do not rush the pilot. Please wait patiently for your pilot to be done. Depending on the service, it can take days or hours.
+
+Any sort of harassment / rude behavior can and will lead to your pilot being discontinued.
+
+
+
+---
+
+TERMS OF SERVICE
+
+Renz and Tmarz use a high-end script to make your piloting easier.
+
+Renz and Tmarz will not be liable in case your account gets terminated while piloting your account. However, this happens rarely as the scripts we use are high-end, safe, and reliable.
+
+Ren and Tmarz will also not be liable if any of your in-game items disappear while piloting. Any data-saving issues are not liable by Akiee.*
+
+
+
+---
+
+Note:
+
+Once you use the account / change password / or log out all sessions while pilot is ongoing
+= cut pilot
+
+Once you spend gems / service / any in-game currency or item related while pilot is ongoing
+= cut pilot
+
+Once paid, no refund!
+
+Once the pilot is done, we humbly ask that you take a screenshot of your finished result, and ping the owner when vouching. 
+\`\`\``;
+
+                try {
+                    await interaction.user.send({
+                        content: `**Rules for Pilot**\n${pilotRules}`
+                    });
+                } catch (dmError) {
+                    console.error('Failed to send Rules DM:', dmError);
+                }
+
+                await ticketChannel.send({
+                    content: `Rules for Pilot\n<@${interaction.user.id}>, please check your dms.`
+                });
+
                 await interaction.editReply({
                     content: `✅ Ticket created: ${ticketChannel}\n**Roblox:** ${robloxUser}`
                 });
