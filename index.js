@@ -279,7 +279,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 return;
             }
 
-            const shouldDeferReply = command.deferReply !== false;
+            const shouldDeferReply = command.deferReply ?? true;
 
             if (shouldDeferReply) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -294,7 +294,12 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
             } catch (error) {
                 console.error(error);
-                await interaction.editReply({ content: '❌ Error executing command.' });
+                const errorReply = { content: '❌ Error executing command.', flags: MessageFlags.Ephemeral };
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.editReply(errorReply).catch(() => {});
+                } else {
+                    await interaction.reply(errorReply).catch(() => {});
+                }
             }
 
             // If the command showed a modal, it doesn't need a final reply here.
