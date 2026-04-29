@@ -87,9 +87,41 @@ if (process.env.NODE_ENV === 'production') {
     })();
 }
 
-client.once(Events.ClientReady, () => {
+async function sendPostGuide(channel) {
+    const guideEmbed = new EmbedBuilder()
+        .setTitle('📖 How to Post a Product')
+        .setDescription('To showcase your products in the marketplace, follow these steps:')
+        .addFields(
+            { name: 'Step 1', value: 'Type the command `/post` in any channel.' },
+            { name: 'Step 2', value: 'Fill in the **Product Name**, **Description**, and **Price**.' },
+            { name: 'Step 3', value: 'Select your preferred **Currency** (Dollars or Pesos).' },
+            { name: 'Step 4', value: '(Optional) Provide an **Image URL** to show your product.' }
+        )
+        .setFooter({ text: 'Your post will be sent to the official marketplace channel automatically.' })
+        .setColor(0x5865F2);
+
+    // Clear previous bot messages in guide channel to keep it clean
+    const messages = await channel.messages.fetch({ limit: 50 });
+    const botMessages = messages.filter(m => m.author.id === client.user.id);
+    if (botMessages.size > 0) {
+        await channel.bulkDelete(botMessages).catch(() => {});
+    }
+
+    await channel.send({ embeds: [guideEmbed] });
+}
+
+client.once(Events.ClientReady, async () => {
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
+
+    // Initialize Guide Channel
+    const guideChannelId = config.system.guideChannelId;
+    const guideChannel = client.channels.cache.get(guideChannelId);
+    if (guideChannel) {
+        console.log('Refreshing Post Guide...');
+        await sendPostGuide(guideChannel);
+    }
+
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
 
@@ -606,6 +638,16 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
 
 client.on(Events.MessageCreate, async message => {
     if (message.author.bot || !message.guild) {
+        return;
+    }
+
+    // Sticky Message Logic for Guide Channel
+    if (message.channel.id === config.system.guideChannelId) {
+        // Delete user message to keep channel read-only
+        await message.delete().catch(() => {});
+        
+        // Re-send guide to keep it at the bottom (sticky)
+        await sendPostGuide(message.channel);
         return;
     }
 
