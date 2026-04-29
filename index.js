@@ -110,6 +110,37 @@ async function sendPostGuide(channel) {
     await channel.send({ embeds: [guideEmbed] });
 }
 
+async function checkAndCleanOldPosts() {
+    console.log('Running old post cleanup...');
+    const allPosts = configManager.getAllPosts();
+    const now = Date.now();
+
+    for (const [messageId, postData] of allPosts) {
+        if (now >= postData.deletionTimestamp) {
+            try {
+                const channel = client.channels.cache.get(postData.channelId);
+                if (channel) {
+                    // Fetch the message to ensure it exists before attempting to delete
+                    const message = await channel.messages.fetch(messageId).catch(() => null);
+                    if (message) {
+                        await message.delete();
+                        console.log(`Deleted old post message ${messageId} in channel ${postData.channelId}`);
+                    } else {
+                        console.log(`Old post message ${messageId} not found in channel ${postData.channelId}, removing from storage.`);
+                    }
+                } else {
+                    console.log(`Channel ${postData.channelId} for old post ${messageId} not found, removing from storage.`);
+                }
+            } catch (error) {
+                console.error(`Failed to delete old post ${messageId}:`, error);
+            } finally {
+                configManager.removePost(messageId); // Always remove from storage after processing
+            }
+        }
+    }
+    console.log('Old post cleanup finished.');
+}
+
 client.once(Events.ClientReady, async () => {
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
@@ -121,6 +152,10 @@ client.once(Events.ClientReady, async () => {
         console.log('Refreshing Post Guide...');
         await sendPostGuide(guideChannel);
     }
+
+    // Start periodic old post cleanup
+    await checkAndCleanOldPosts(); // Run once on startup
+    setInterval(checkAndCleanOldPosts, 6 * 60 * 60 * 1000); // Run every 6 hours (adjust as needed)
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
@@ -262,6 +297,11 @@ client.on(Events.InteractionCreate, async interaction => {
                 await interaction.editReply({ content: '❌ Error executing command.' });
             }
 
+            // If the command showed a modal, it doesn't need a final reply here.
+            // The modal submission will handle its own reply.
+            if (interaction.commandName === 'post') {
+                return;
+            }
             return;
         }
 
@@ -511,6 +551,175 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
                 await interaction.editReply({ content: '❌ Failed to create ticket. Check bot permissions.' });
             }
 
+            return;
+        }
+
+        if (interaction.isModalSubmit() && interaction.customId === 'post_modal') {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral }); // Defer the reply for the modal submission
+
+            const productName = interaction.fields.getTextInputValue('product_name');
+            const productDescription = interaction.fields.getTextInputValue('product_description');
+            const productPrice = interaction.fields.getTextInputValue('product_price');
+            const productCurrency = interaction.fields.getTextInputValue('product_currency');
+            const productImage = interaction.fields.getTextInputValue('product_image_url');
+
+            const targetChannelId = config.system.postChannelId;
+            const targetChannel = interaction.guild.channels.cache.get(targetChannelId);
+
+            if (!targetChannel) {
+                return await interaction.editReply({ content: '❌ Target post channel not found in configuration. Please contact an administrator.' });
+            }
+
+            // Validate currency
+            let currencySymbol;
+            let currencyName;
+            if (productCurrency.toLowerCase() === 'dollars') {
+                currencySymbol = '$';
+                currencyName = 'Dollars';
+            } else if (productCurrency.toLowerCase() === 'pesos') {
+                currencySymbol = '₱';
+                currencyName = 'Pesos';
+            } else {
+                return await interaction.editReply({ content: '❌ Invalid currency. Please type "Dollars" or "Pesos".' });
+            }
+
+            // Validate price
+            const parsedPrice = parseFloat(productPrice);
+            if (isNaN(parsedPrice) || parsedPrice < 0) {
+                return await interaction.editReply({ content: '❌ Invalid price. Please enter a valid number (e.g., 10.99).' });
+            }
+
+            const postEmbed = new EmbedBuilder()
+                .setTitle(`📦 ${productName}`)
+                .setColor(0x9B59B6) // Purple theme
+                .addFields(
+                    { name: '💵 Price', value: `**${currencySymbol}${parsedPrice.toFixed(2)}**`, inline: true },
+                    { name: '🪙 Currency', value: `\`${currencyName}\``, inline: true },
+                    { name: '👤 Seller', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: '📝 Description', value: productDescription }
+                )
+                .setTimestamp();
+
+            const postRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`contact_seller_${interaction.user.id}_${productName.substring(0, 50)}`)
+                    .setLabel('Contact Seller')
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('📩')
+            );
+
+            if (productImage && productImage.startsWith('http')) {
+                postEmbed.setImage(productImage);
+            } else if (productImage) {
+                // If image URL is provided but invalid, send a follow-up warning
+                await interaction.followUp({
+                    content: '⚠️ The provided image URL was invalid and will not be displayed.',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
+            try {
+                const sentMessage = await targetChannel.send({ 
+                    embeds: [postEmbed],
+                    components: [postRow]
+                }); 
+                const deletionTimestamp = Date.now() + (3 * 24 * 60 * 60 * 1000); // 3 days from now
+                configManager.savePost(sentMessage.id, { channelId: targetChannel.id, deletionTimestamp });
+                console.log(`Saved post ${sentMessage.id} for deletion at ${new Date(deletionTimestamp).toISOString()}`);
+                const reply = await interaction.editReply({
+                    content: `✅ Successfully posted your product in ${targetChannel}!`
+                });
+
+                // Auto-delete the confirmation message after 5 seconds
+                setTimeout(() => reply.delete().catch(() => {}), 5000);
+            } catch (error) {
+                console.error('Post command (modal submit) failed:', error);
+                await interaction.editReply({ content: '❌ Failed to send the post. Check bot permissions in the target channel.' });
+            }
+            return;
+        }
+
+        if (interaction.isButton() && interaction.customId.startsWith('contact_seller_')) {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+            const parts = interaction.customId.split('_');
+            const sellerId = parts[2];
+            const productName = parts.slice(3).join('_');
+            const tradeCategory = '1381279668329775276';
+            const guildConfig = config.system;
+
+            try {
+                const cleanUser = interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const tradeChannel = await interaction.guild.channels.create({
+                    name: `trade-${cleanUser}`,
+                    type: ChannelType.GuildText,
+                    parent: tradeCategory,
+                    permissionOverwrites: [
+                        {
+                            id: interaction.guild.id,
+                            deny: [PermissionFlagsBits.ViewChannel]
+                        },
+                        {
+                            id: interaction.user.id,
+                            allow: [
+                                PermissionFlagsBits.ViewChannel,
+                                PermissionFlagsBits.SendMessages,
+                                PermissionFlagsBits.ReadMessageHistory,
+                                PermissionFlagsBits.AttachFiles
+                            ]
+                        },
+                        {
+                            id: sellerId,
+                            allow: [
+                                PermissionFlagsBits.ViewChannel,
+                                PermissionFlagsBits.SendMessages,
+                                PermissionFlagsBits.ReadMessageHistory,
+                                PermissionFlagsBits.AttachFiles
+                            ]
+                        }
+                    ]
+                });
+
+                // Add Support Roles
+                if (guildConfig?.supportRoleIds?.length > 0) {
+                    for (const roleId of guildConfig.supportRoleIds) {
+                        await tradeChannel.permissionOverwrites.edit(roleId, {
+                            ViewChannel: true,
+                            SendMessages: true,
+                            ReadMessageHistory: true
+                        }).catch(() => {});
+                    }
+                }
+
+                // Notify Seller
+                try {
+                    const seller = await interaction.client.users.fetch(sellerId);
+                    await seller.send(`📩 **New Trade Inquiry!**\n<@${interaction.user.id}> is interested in buying **${productName}**.\nJoin the trade here: ${tradeChannel}`);
+                } catch (e) { console.error('DM Seller Error:', e); }
+
+                // Trading Rules for Buyer
+                const tradeRules = `\`\`\`RULES FOR TRADING\n\nAlways trade with proof. Screenshots or video recordings are highly recommended before, during, and after the trade.\n\nDo not rush trades. Take your time to confirm all items or currency involved before accepting any trade.\n\nNo middleman = Trade at your own risk. If you refuse a trusted middleman, we are not responsible for any loss.\n\nOnce the trade is completed, it's final. No refunds or exchanges unless agreed beforehand by both parties and proven with evidence.\n\nNever trade outside of approved platforms. This helps us ensure a safe and secure trading environment.\n\nScamming = Permanent ban. No warnings will be given if caught attempting or committing a scam.\n\nDo not impersonate staff or other users. Impersonation will result in an immediate ban.\n\nDo not spam or beg for items. This creates a negative experience for others and is not tolerated.\`\`\``;
+
+                try {
+                    await interaction.user.send(tradeRules);
+                } catch (e) { console.error('DM Buyer Error:', e); }
+
+                await tradeChannel.send({
+                    content: `<@${interaction.user.id}>, please check your DMs for the Trading Rules.`,
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('🤝 New Trade Session')
+                            .setDescription(`Buyer: <@${interaction.user.id}>\nSeller: <@${sellerId}>\nProduct: **${productName}**`)
+                            .setColor(0x9B59B6)
+                            .setTimestamp()
+                    ]
+                });
+
+                await interaction.editReply(`✅ Trade ticket created: ${tradeChannel}`);
+            } catch (error) {
+                console.error('Trade Ticket creation failed:', error);
+                await interaction.editReply('❌ Failed to create trade ticket. Check bot permissions.');
+            }
             return;
         }
 

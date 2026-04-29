@@ -1,86 +1,67 @@
 const {
     SlashCommandBuilder,
-    EmbedBuilder,
-    MessageFlags
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    ActionRowBuilder
 } = require('discord.js');
-const config = require('../config');
 
 module.exports = {
+    deferReply: false, // The initial /post command will show a modal, not defer a reply.
     data: new SlashCommandBuilder()
         .setName('post')
-        .setDescription('Post a product for sale')
-        .addStringOption(option =>
-            option.setName('name')
-                .setDescription('Product Name')
-                .setRequired(true)
-        )
-        .addStringOption(option =>
-            option.setName('description')
-                .setDescription('Product Description')
-                .setRequired(true)
-        )
-        .addStringOption(option =>
-            option.setName('price')
-                .setDescription('Product Price')
-                .setRequired(true)
-        )
-        .addStringOption(option =>
-            option.setName('currency')
-                .setDescription('Choose currency (Dollars or Pesos)')
-                .setRequired(true)
-                .addChoices(
-                    { name: 'Dollars ($)', value: 'Dollars' },
-                    { name: 'Pesos (₱)', value: 'Pesos' }
-                )
-        )
-        .addStringOption(option =>
-            option.setName('image')
-                .setDescription('Image URL of the product')
-                .setRequired(false)
-        ),
+        .setDescription('Start the process to post a product for sale'),
 
     async execute(interaction) {
-        const name = interaction.options.getString('name');
-        const description = interaction.options.getString('description');
-        const price = interaction.options.getString('price');
-        const currency = interaction.options.getString('currency');
-        const image = interaction.options.getString('image');
+        const modal = new ModalBuilder()
+            .setCustomId('post_modal')
+            .setTitle('Create Your Product Post');
 
-        const targetChannelId = config.system.postChannelId;
-        const targetChannel = interaction.guild.channels.cache.get(targetChannelId);
+        const productNameInput = new TextInputBuilder()
+            .setCustomId('product_name')
+            .setLabel('Product Name')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMaxLength(100);
 
-        if (!targetChannel) {
-            return await interaction.editReply({ content: '❌ Target post channel not found.' });
-        }
+        const productDescriptionInput = new TextInputBuilder()
+            .setCustomId('product_description')
+            .setLabel('Product Description')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+            .setMaxLength(1000);
 
-        const currencySymbol = currency === 'Dollars' ? '$' : '₱';
+        const productPriceInput = new TextInputBuilder()
+            .setCustomId('product_price')
+            .setLabel('Product Price (e.g., 10.99)')
+            .setPlaceholder('Enter a number, e.g., 10.99')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMaxLength(20);
 
-        const postEmbed = new EmbedBuilder()
-            .setTitle(`📦 ${name}`)
-            .setDescription(description)
-            .addFields(
-                { name: 'Price', value: `${currencySymbol}${price}`, inline: true },
-                { name: 'Currency', value: currency, inline: true },
-                { name: 'Seller', value: `<@${interaction.user.id}>`, inline: false }
-            )
-            .setColor(0x57F287)
-            .setTimestamp();
+        const productCurrencyInput = new TextInputBuilder()
+            .setCustomId('product_currency')
+            .setLabel('Currency (Dollars or Pesos)')
+            .setPlaceholder('Type "Dollars" or "Pesos"')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(true)
+            .setMaxLength(10);
 
-        if (image && image.startsWith('http')) {
-            postEmbed.setImage(image);
-        }
+        const productImageInput = new TextInputBuilder()
+            .setCustomId('product_image_url')
+            .setLabel('Image URL (Optional)')
+            .setPlaceholder('e.g., https://example.com/image.png')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false);
 
-        try {
-            await targetChannel.send({ embeds: [postEmbed] });
-            const reply = await interaction.editReply({ 
-                content: `✅ Successfully posted your product in ${targetChannel}!` 
-            });
-            
-            // Auto-delete the confirmation message after 5 seconds
-            setTimeout(() => reply.delete().catch(() => {}), 5000);
-        } catch (error) {
-            console.error('Post command failed:', error);
-            await interaction.editReply({ content: '❌ Failed to send the post. Check bot permissions.' });
-        }
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(productNameInput),
+            new ActionRowBuilder().addComponents(productDescriptionInput),
+            new ActionRowBuilder().addComponents(productPriceInput),
+            new ActionRowBuilder().addComponents(productCurrencyInput),
+            new ActionRowBuilder().addComponents(productImageInput)
+        );
+
+        await interaction.showModal(modal);
     }
 };
