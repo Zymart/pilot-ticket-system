@@ -80,6 +80,15 @@ class ConfigManager {
         this.animeState = state;
         this.save();
     }
+
+    getMangaState() {
+        return this.mangaState;
+    }
+
+    setMangaState(state) {
+        this.mangaState = state;
+        this.save();
+    }
 }
 
 module.exports = new ConfigManager();
