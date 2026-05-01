@@ -984,18 +984,20 @@ client.on(Events.MessageCreate, async message => {
         try {
             const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
             
-            // Using the direct model endpoint which is more reliable for Mistral-7B-Instruct-v0.3
-            const aiResponse = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3', {
+            // Using the OpenAI-compatible endpoint for Hugging Face (more stable)
+            const aiResponse = await fetch('https://api-inference.huggingface.co/v1/chat/completions', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${config.hfApiKey}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    // Using the official Mistral prompt template [INST] [/INST]
-                    inputs: `<s>[INST] ${systemContext}\n\nUser Question: ${query} [/INST]`,
-                    parameters: { max_new_tokens: 500, return_full_text: false },
-                    options: { wait_for_model: true }
+                    model: 'mistralai/Mistral-7B-Instruct-v0.2', // v0.2 is currently more stable on the free tier
+                    messages: [
+                        { role: 'system', content: systemContext },
+                        { role: 'user', content: query }
+                    ],
+                    max_tokens: 500
                 })
             });
 
@@ -1007,14 +1009,13 @@ client.on(Events.MessageCreate, async message => {
                     return;
                 }
 
-                const errorMessage = errorBody.error || errorBody.message || 'Unknown HF Error';
+                const errorMessage = errorBody.error?.message || errorBody.error || errorBody.message || 'Unknown HF Error';
                 console.error('HF API Error Details:', errorMessage);
                 throw new Error(`AI API returned ${aiResponse.status}: ${errorMessage}`);
             }
             
             const aiData = await aiResponse.json();
-            // The standard Inference API returns an array. We access the first result.
-            const text = aiData[0]?.generated_text || aiData.generated_text || "I couldn't generate a response.";
+            const text = aiData.choices?.[0]?.message?.content || "I couldn't generate a response.";
 
             await typingMsg.edit({
                 content: `✨ **AI Assistant:**\n${text}`,
