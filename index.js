@@ -364,6 +364,101 @@ async function autoPostAnimeSuggestions() {
     }
 }
 
+async function autoPostAniListUpdates() {
+    const channelId = config.system.animeNewsChannelId;
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return;
+
+    try {
+        const query = `
+            query ($page: Int, $perPage: Int) {
+                Page (page: $page, perPage: $perPage) {
+                    media (type: ANIME, sort: [TRENDING_DESC, POPULARITY_DESC], isAdult: false) {
+                        id
+                        title {
+                            romaji
+                            english
+                            native
+                        }
+                        description(asHtml: false)
+                        coverImage {
+                            extraLarge
+                        }
+                        genres
+                        averageScore
+                        siteUrl
+                        status
+                        episodes
+                        startDate {
+                            year
+                            month
+                            day
+                        }
+                    }
+                }
+            }
+        `;
+        const variables = {
+            page: 1,
+            perPage: 5 // Fetch a few to pick from
+        };
+
+        const response = await fetch('https://graphql.anilist.co', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+                query: query,
+                variables: variables
+            })
+        });
+        const data = await response.json();
+
+        if (!data.data || !data.data.Page || !data.data.Page.media || data.data.Page.media.length === 0) {
+            console.log('AniList: No media found or API error.');
+            return;
+        }
+
+        const trendingAnime = data.data.Page.media.slice(0, 3); // Pick top 3
+
+        const currentIds = trendingAnime.map(anime => anime.id).join(',');
+        const state = configManager.getAniListState();
+        if (state.lastIds === currentIds) {
+            console.log('AniList: No new trending anime updates found since last post.');
+            return;
+        }
+
+        console.log('Posting automated AniList updates...');
+
+        for (const anime of trendingAnime) {
+            const embed = new EmbedBuilder()
+                .setTitle(`✨ AniList Trending: ${anime.title.english || anime.title.romaji || anime.title.native}`)
+                .setURL(anime.siteUrl)
+                .setDescription(truncateText(anime.description || 'No description available.', 500))
+                .setColor(0x2E51A2) // AniList blue
+                .setTimestamp()
+                .setFooter({ text: 'Data provided by AniList' });
+
+            if (anime.coverImage?.extraLarge) embed.setImage(anime.coverImage.extraLarge);
+            if (anime.genres && anime.genres.length > 0) embed.addFields({ name: 'Genres', value: anime.genres.join(', '), inline: true });
+            if (anime.averageScore) embed.addFields({ name: 'Score', value: `${anime.averageScore}%`, inline: true });
+            if (anime.episodes) embed.addFields({ name: 'Episodes', value: anime.episodes.toString(), inline: true });
+            if (anime.status) embed.addFields({ name: 'Status', value: anime.status.replace(/_/g, ' '), inline: true });
+
+            await channel.send({ embeds: [embed] });
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Delay between posts
+        }
+
+        configManager.setAniListState({ lastIds: currentIds });
+        console.log(`Successfully posted AniList updates to ${channelId}`);
+
+    } catch (error) {
+        console.error('Auto AniList updates failed:', error);
+    }
+}
+
 async function checkAndCleanOldPosts() {
     console.log('Running old post cleanup...');
     const allPosts = configManager.getAllPosts();
@@ -427,6 +522,10 @@ client.once(Events.ClientReady, async () => {
     // Start periodic Anime Suggestions - checking every 1 hour
     await autoPostAnimeSuggestions(); // Run once on startup
     setInterval(autoPostAnimeSuggestions, 1 * 60 * 60 * 1000); // 1 hour
+
+    // Start periodic AniList Updates - checking every 1 hour
+    await autoPostAniListUpdates(); // Run once on startup
+    setInterval(autoPostAniListUpdates, 1 * 60 * 60 * 1000); // 1 hour
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });

@@ -11,6 +11,7 @@ class ConfigManager {
         this.animeState = {};
         this.mangaState = {};
         this.suggestionState = {};
+        this.anilistState = {}; // New: Store state for AniList updates
     }
 
     init() {
@@ -29,6 +30,7 @@ class ConfigManager {
             this.animeState = d.animeState || {};
             this.mangaState = d.mangaState || {};
             this.suggestionState = d.suggestionState || {};
+            this.anilistState = d.anilistState || {}; // New: Load AniList state
         } catch (err) {
             console.error('Load failed:', err);
         }
@@ -42,6 +44,7 @@ class ConfigManager {
             animeState: this.animeState,
             mangaState: this.mangaState,
             suggestionState: this.suggestionState,
+            anilistState: this.anilistState, // New: Save AniList state
             savedAt: new Date().toISOString()
         };
         
@@ -99,6 +102,15 @@ class ConfigManager {
 
     setSuggestionState(state) {
         this.suggestionState = state;
+        this.save();
+    }
+
+    getAniListState() {
+        return this.anilistState;
+    }
+
+    setAniListState(state) {
+        this.anilistState = state;
         this.save();
     }
 }
