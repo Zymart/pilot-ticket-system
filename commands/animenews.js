@@ -20,38 +20,68 @@ module.exports = {
             const seasonRes = await fetch('https://api.jikan.moe/v4/seasons/now?limit=10');
             const seasonData = await seasonRes.json();
 
-            const embed = new EmbedBuilder()
-                .setTitle('📺 Latest Anime News & New Releases')
-                .setDescription('Currently trending, recently aired, and upcoming titles!')
-                .setColor(0x2E51A2)
-                .setTimestamp()
-                .setFooter({ text: 'Data provided by Jikan API (MyAnimeList)' });
+            const headerEmbed = new EmbedBuilder()
+                .setTitle('📺 Anime News Flash')
+                .setDescription('Sending the latest updates one by one...')
+                .setColor(0x2E51A2);
 
-            // New Episodes
+            await interaction.editReply({ embeds: [headerEmbed] });
+
+            // Post New Episodes
             if (epData.data?.length) {
-                const list = epData.data.slice(0, 5).map(item => `• **${item.entry.title}** - ${item.episodes?.[0]?.mal_id || 'New'}`).join('\n');
-                embed.addFields({ name: '🆕 New Episode Releases', value: list });
-            }
-
-            // Upcoming
-            if (upcomingData.data?.length) {
-                const list = upcomingData.data.slice(0, 5).map(a => `• **${a.title}** (${a.aired?.string || 'TBA'})`).join('\n');
-                embed.addFields({ name: '⏳ Upcoming Series', value: list });
-            }
-
-            // Recently Finished / Status
-            if (seasonData.data?.length) {
-                const finished = seasonData.data.filter(a => a.status === 'Finished Airing').slice(0, 3);
-                if (finished.length > 0) {
-                    const list = finished.map(a => `• **${a.title}** (Completed)`).join('\n');
-                    embed.addFields({ name: '🏁 Recently Finished', value: list });
-                } else {
-                    const trending = seasonData.data.slice(0, 3).map(a => `• **${a.title}** (Rating: ${a.score || 'N/A'})`).join('\n');
-                    embed.addFields({ name: '🔥 Top Airing Now', value: trending });
+                for (const item of epData.data.slice(0, 2)) {
+                    const epEmbed = new EmbedBuilder()
+                        .setTitle(`🆕 New Release: ${item.entry.title}`)
+                        .setDescription(`New update available!`)
+                        .setImage(item.entry.images?.jpg?.large_image_url || item.entry.images?.jpg?.image_url)
+                        .setURL(item.entry.url)
+                        .setColor(0x57F287);
+                    
+                    await interaction.followUp({ embeds: [epEmbed], flags: 64 });
                 }
             }
 
-            await interaction.editReply({ embeds: [embed] });
+            // Post Upcoming
+            if (upcomingData.data?.length) {
+                for (const a of upcomingData.data.slice(0, 2)) {
+                    const upEmbed = new EmbedBuilder()
+                        .setTitle(`⏳ Upcoming: ${a.title}`)
+                        .setDescription(`Airing: ${a.aired?.string || 'TBA'}`)
+                        .setImage(a.images?.jpg?.large_image_url || a.images?.jpg?.image_url)
+                        .setURL(a.url)
+                        .setColor(0xFEE75C);
+
+                    await interaction.followUp({ embeds: [upEmbed], flags: 64 });
+                }
+            }
+
+            // Post Recently Finished / Status
+            if (seasonData.data?.length) {
+                const finished = seasonData.data.filter(a => a.status === 'Finished Airing').slice(0, 3);
+                if (finished.length > 0) {
+                    for (const a of finished) {
+                        const finEmbed = new EmbedBuilder()
+                            .setTitle(`🏁 Finished: ${a.title}`)
+                            .setImage(a.images?.jpg?.large_image_url || a.images?.jpg?.image_url)
+                            .setURL(a.url)
+                            .setColor(0xED4245);
+                        
+                        await interaction.followUp({ embeds: [finEmbed], flags: 64 });
+                    }
+                } else {
+                    for (const a of seasonData.data.slice(0, 2)) {
+                        const trendEmbed = new EmbedBuilder()
+                            .setTitle(`🔥 Trending: ${a.title}`)
+                            .setDescription(`Rating: ⭐ ${a.score || 'N/A'}`)
+                            .setImage(a.images?.jpg?.large_image_url || a.images?.jpg?.image_url)
+                            .setURL(a.url)
+                            .setColor(0x5865F2);
+
+                        await interaction.followUp({ embeds: [trendEmbed], flags: 64 });
+                    }
+                }
+            }
+
         } catch (error) {
             console.error('Anime news command failed:', error);
             await interaction.editReply('❌ Failed to fetch anime news. Please try again later.');

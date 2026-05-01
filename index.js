@@ -148,37 +148,63 @@ async function autoPostAnimeNews() {
             return;
         }
 
-        const embed = new EmbedBuilder()
-            .setTitle('📺 Latest Anime News & Releases')
-            .setDescription('Stay updated with new episode releases, upcoming titles, and season highlights!')
-            .setColor(0x2E51A2)
-            .setTimestamp()
-            .setFooter({ text: 'Auto-posted via Jikan API' });
-
-        // Section: New Episode Releases
-        const recentEps = epData.data.slice(0, 5).map(item => {
-            const ep = item.episodes?.[0]?.mal_id || 'New Episode';
-            return `• **${item.entry.title}** - ${ep}`;
-        }).join('\n');
-        embed.addFields({ name: '🆕 New Episode Releases', value: recentEps || 'None recorded.' });
-
-        // Section: Upcoming Anime
-        const upcoming = upcomingData.data.slice(0, 5).map(anime => {
-            return `• **${anime.title}** (${anime.aired?.string || 'TBA'})`;
-        }).join('\n');
-        embed.addFields({ name: '⏳ Upcoming Series', value: upcoming || 'No upcoming anime found.' });
-
-        // Section: Recently Finished / Trending
-        const finished = seasonData.data.filter(a => a.status === 'Finished Airing').slice(0, 3);
-        if (finished.length > 0) {
-            const finishedList = finished.map(a => `• **${a.title}** (Completed)`).join('\n');
-            embed.addFields({ name: '🏁 Recently Finished', value: finishedList });
-        } else {
-            const trending = seasonData.data.slice(0, 3).map(a => `• **${a.title}** (Rating: ${a.score || 'N/A'})`).join('\n');
-            embed.addFields({ name: '🔥 Top Airing Now', value: trending });
+        // Post New Episode Releases Individually
+        const recentEps = epData.data.slice(0, 3);
+        for (const item of recentEps) {
+            const epTitle = item.episodes?.[0]?.title || 'New Episode';
+            const epEmbed = new EmbedBuilder()
+                .setTitle(`🆕 New Release: ${item.entry.title}`)
+                .setDescription(`A new episode has just been released!\n**Episode:** ${epTitle}`)
+                .setImage(item.entry.images?.jpg?.large_image_url || item.entry.images?.jpg?.image_url)
+                .setURL(item.entry.url)
+                .setColor(0x57F287) // Green for new releases
+                .setTimestamp();
+            
+            await channel.send({ embeds: [epEmbed] });
         }
 
-        await channel.send({ embeds: [embed] });
+        // Post Upcoming Anime Individually
+        const upcoming = upcomingData.data.slice(0, 2);
+        for (const anime of upcoming) {
+            const upEmbed = new EmbedBuilder()
+                .setTitle(`⏳ Upcoming: ${anime.title}`)
+                .setDescription(`Get ready! This anime is coming soon.\n**Airing:** ${anime.aired?.string || 'TBA'}`)
+                .setImage(anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url)
+                .setURL(anime.url)
+                .setColor(0xFEE75C) // Yellow for upcoming
+                .setTimestamp();
+
+            await channel.send({ embeds: [upEmbed] });
+        }
+
+        // Post Recently Finished or Trending Individually
+        const finished = seasonData.data.filter(a => a.status === 'Finished Airing').slice(0, 3);
+        if (finished.length > 0) {
+            for (const a of finished) {
+                const finEmbed = new EmbedBuilder()
+                    .setTitle(`🏁 Finished: ${a.title}`)
+                    .setDescription(`This series has successfully finished airing! Time to binge-watch?`)
+                    .setImage(a.images?.jpg?.large_image_url || a.images?.jpg?.image_url)
+                    .setURL(a.url)
+                    .setColor(0xED4245) // Red for finished
+                    .setTimestamp();
+                
+                await channel.send({ embeds: [finEmbed] });
+            }
+        } else {
+            const trending = seasonData.data.slice(0, 2);
+            for (const a of trending) {
+                const trendEmbed = new EmbedBuilder()
+                    .setTitle(`🔥 Trending: ${a.title}`)
+                    .setDescription(`People are talking about this right now!\n**Rating:** ⭐ ${a.score || 'N/A'}`)
+                    .setImage(a.images?.jpg?.large_image_url || a.images?.jpg?.image_url)
+                    .setURL(a.url)
+                    .setColor(0x5865F2) // Blue for trending
+                    .setTimestamp();
+
+                await channel.send({ embeds: [trendEmbed] });
+            }
+        }
         
         // Update state to prevent duplicate posts
         configManager.setAnimeState({ lastIds: currentIds });
