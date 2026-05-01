@@ -32,7 +32,7 @@ const {
 
 // Initialize AI
 const genAI = config.aiApiKey ? new GoogleGenerativeAI(config.aiApiKey) : null;
-const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-1.5-flash" }) : null;
+const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { apiVersion: 'v1' }) : null;
 
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
@@ -968,10 +968,21 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
-    // AI Support Logic: Triggers on any message ending with '?' in any channel
-    if (aiModel && message.content.trim().endsWith('?')) {
+    // AI Support Logic:
+    // 1. Detects "normal talk" in the specific AI channel (1499678431695077507)
+    // 2. In tickets, it only triggers for Admins using the !ai command
+    const AI_SUPPORT_CHANNEL_ID = '1499678431695077507';
+    const isAiSupportChannel = message.channel.id === AI_SUPPORT_CHANNEL_ID;
+    const isTicketAdminAi = isTicketChannel(message.channel) && 
+                            message.content.startsWith('!ai') && 
+                            message.member.permissions.has(PermissionFlagsBits.Administrator);
+
+    if (aiModel && (isAiSupportChannel || isTicketAdminAi)) {
+        const query = isTicketAdminAi ? message.content.slice(3).trim() : message.content;
+        if (!query) return;
+
         const prompt = `You are a helpful assistant for TMARYZ DISCORD PILOT SERVICE. 
-        Answer the following user question briefly and professionally: ${message.content}`;
+        Answer the following user question briefly and professionally: ${query}`;
 
         try {
             const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
