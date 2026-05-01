@@ -666,12 +666,14 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
 
             if (productImage && productImage.startsWith('http')) {
                 postEmbed.setImage(productImage);
-            } else if (productImage) {
-                // If image URL is provided but invalid, send a follow-up warning
+            }
+            
+            // Notify user if image URL was provided but seems invalid (doesn't start with http)
+            if (productImage && !productImage.startsWith('http')) {
                 await interaction.followUp({
-                    content: '⚠️ The provided image URL was invalid and will not be displayed.',
+                    content: '⚠️ The image URL must start with `http` or `https` to be displayed.',
                     flags: MessageFlags.Ephemeral
-                });
+                }).catch(() => {});
             }
 
             try {
