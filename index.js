@@ -266,9 +266,9 @@ client.once(Events.ClientReady, async () => {
     await checkAndCleanOldPosts(); // Run once on startup
     setInterval(checkAndCleanOldPosts, 6 * 60 * 60 * 1000); // Run every 6 hours (adjust as needed)
 
-    // Start periodic Anime News updates - checking every hour for changes
+    // Start periodic Anime News updates - checking every minute for changes
     await autoPostAnimeNews(); // Run once on startup
-    setInterval(autoPostAnimeNews, 60 * 60 * 1000); // Run every hour
+    setInterval(autoPostAnimeNews, 60 * 1000); // Run every minute
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
