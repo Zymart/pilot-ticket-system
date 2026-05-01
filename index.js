@@ -117,6 +117,39 @@ async function sendPostGuide(channel) {
     await channel.send({ embeds: [guideEmbed] });
 }
 
+async function autoPostAnimeNews() {
+    const channelId = config.system.animeNewsChannelId;
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return;
+
+    try {
+        const response = await fetch('https://api.jikan.moe/v4/seasons/now?limit=5');
+        const data = await response.json();
+
+        if (!data.data || data.data.length === 0) return;
+
+        const embed = new EmbedBuilder()
+            .setTitle('📢 Daily Anime Updates')
+            .setDescription('Here are the top airing anime trending right now:')
+            .setColor(0x2E51A2)
+            .setTimestamp()
+            .setFooter({ text: 'Auto-posted via Jikan API' });
+
+        data.data.forEach(anime => {
+            embed.addFields({
+                name: anime.title,
+                value: `⭐ **Score:** ${anime.score || 'N/A'}\n🎭 **Genres:** ${anime.genres.map(g => g.name).join(', ')}\n🔗 View on MAL`,
+                inline: false
+            });
+        });
+
+        await channel.send({ embeds: [embed] });
+        console.log(`Successfully posted anime updates to ${channelId}`);
+    } catch (error) {
+        console.error('Auto anime news post failed:', error);
+    }
+}
+
 async function checkAndCleanOldPosts() {
     console.log('Running old post cleanup...');
     const allPosts = configManager.getAllPosts();
@@ -168,6 +201,10 @@ client.once(Events.ClientReady, async () => {
     // Start periodic old post cleanup
     await checkAndCleanOldPosts(); // Run once on startup
     setInterval(checkAndCleanOldPosts, 6 * 60 * 60 * 1000); // Run every 6 hours (adjust as needed)
+
+    // Start periodic Anime News updates
+    await autoPostAnimeNews(); // Run once on startup
+    setInterval(autoPostAnimeNews, 24 * 60 * 60 * 1000); // Run every 24 hours
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
@@ -961,70 +998,6 @@ client.on(Events.MessageCreate, async message => {
         
         // Re-send guide to keep it at the bottom (sticky)
         await sendPostGuide(message.channel);
-        return;
-    }
-
-    // AI Support Logic:
-    // 1. Detects "normal talk" in the specific AI channel
-    // 2. In tickets, it only triggers for Admins using the !ai command
-    const isAiSupportChannel = message.channel.id === config.system.aiSupportChannelId;
-    const isTicketAdminAi = isTicketChannel(message.channel) && 
-                            message.content.toLowerCase().startsWith('!ai') && 
-                            message.member.permissions.has(PermissionFlagsBits.Administrator);
-
-    if (config.hfApiKey && (isAiSupportChannel || isTicketAdminAi)) {
-        const query = isTicketAdminAi ? message.content.slice(3).trim() : message.content;
-        if (!query) return;
-
-        const systemContext = `You are an assistant for TMARYZ DISCORD PILOT SERVICE.
-        Rules for Pilot: Never use account while pilot is ongoing. Coordinate with guidelines. Do not rush. No refunds once paid.
-        Rules for Trading: Trade with proof (screenshots/video). No middleman = trade at own risk. Scamming results in a ban.
-        Answer user questions briefly, professionally, and use the rules above to guide your answers.`;
-
-        try {
-            const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
-            
-            // Using the OpenAI-compatible endpoint for Hugging Face (more stable)
-            const aiResponse = await fetch('https://api-inference.huggingface.co/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${config.hfApiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    model: 'mistralai/Mistral-7B-Instruct-v0.2', // v0.2 is currently more stable on the free tier
-                    messages: [
-                        { role: 'system', content: systemContext },
-                        { role: 'user', content: query }
-                    ],
-                    max_tokens: 500
-                })
-            });
-
-            if (!aiResponse.ok) {
-                const errorBody = await aiResponse.json().catch(() => ({ message: 'No JSON error body' }));
-                
-                if (aiResponse.status === 429) {
-                    await typingMsg.edit("⚠️ **AI Rate Limited:** Sobrang dami ng request sa Hugging Face. Subukan muli mamaya.");
-                    return;
-                }
-
-                const errorMessage = errorBody.error?.message || errorBody.error || errorBody.message || 'Unknown HF Error';
-                console.error('HF API Error Details:', errorMessage);
-                throw new Error(`AI API returned ${aiResponse.status}: ${errorMessage}`);
-            }
-            
-            const aiData = await aiResponse.json();
-            const text = aiData.choices?.[0]?.message?.content || "I couldn't generate a response.";
-
-            await typingMsg.edit({
-                content: `✨ **AI Assistant:**\n${text}`,
-                allowedMentions: { repliedUser: false }
-            });
-        } catch (error) {
-            console.error('AI Response Error:', error);
-            await message.channel.send("⚠️ Sorry, I'm having trouble connecting to my AI brain right now.");
-        }
         return;
     }
 

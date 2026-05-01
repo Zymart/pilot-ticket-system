@@ -16,8 +16,6 @@ services:
         sync: false
       - key: GUILD_ID
         sync: false
-      - key: HF_API_KEY
-        sync: false
       - key: JSONBIN_MASTER_KEY
         sync: false
 
