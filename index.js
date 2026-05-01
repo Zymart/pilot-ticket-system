@@ -973,30 +973,36 @@ client.on(Events.MessageCreate, async message => {
                             message.content.startsWith('!ai') && 
                             message.member.permissions.has(PermissionFlagsBits.Administrator);
 
-    if (config.aiApiKey && (isAiSupportChannel || isTicketAdminAi)) {
+    if (config.openaiApiKey && (isAiSupportChannel || isTicketAdminAi)) {
         const query = isTicketAdminAi ? message.content.slice(3).trim() : message.content;
         if (!query) return;
-
-        const prompt = `You are a helpful assistant for TMARYZ DISCORD PILOT SERVICE. 
-        Answer the following user question briefly and professionally: ${query}`;
 
         try {
             const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
             
-            const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.aiApiKey}`, {
+            const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
                 body: JSON.stringify({
-                    contents: [{
-                        parts: [{ text: prompt }]
-                    }]
+                    model: 'gpt-4o-mini',
+                    messages: [
+                        { 
+                            role: 'system', 
+                            content: 'You are a helpful assistant for TMARYZ DISCORD PILOT SERVICE. Answer user questions briefly, professionally, and helpfully.' 
+                        },
+                        { role: 'user', content: query }
+                    ],
+                    max_tokens: 500
                 })
             });
 
             if (!aiResponse.ok) throw new Error(`AI API returned ${aiResponse.status}`);
             
             const aiData = await aiResponse.json();
-            const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response.";
+            const text = aiData.choices?.[0]?.message?.content || "I couldn't generate a response.";
 
             await typingMsg.edit({
                 content: `✨ **AI Assistant:**\n${text}`,
