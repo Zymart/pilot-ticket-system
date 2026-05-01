@@ -658,7 +658,7 @@ client.on(Events.InteractionCreate, async interaction => {
             try {
                 await command.execute(interaction, { configManager });
 
-                if (shouldDeferReply && !['setup', 'ticket'].includes(interaction.commandName)) {
+                if (shouldDeferReply && !['setup', 'ticket', 'dmall'].includes(interaction.commandName)) {
                     const reply = await interaction.fetchReply();
                     autoDeleteMessage(reply, 120000);
                 }
