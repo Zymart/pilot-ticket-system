@@ -4,8 +4,7 @@ module.exports = {
     token: process.env.DISCORD_TOKEN,
     clientId: process.env.CLIENT_ID,
     guildId: process.env.GUILD_ID,
-    aiApiKey: process.env.GEMINI_API_KEY,
-    openaiApiKey: process.env.OPENAI_API_KEY,
+    hfApiKey: process.env.HF_API_KEY,
     port: process.env.PORT || 3000,
     system: {
         ticketCategoryId: '1381276042475339776',

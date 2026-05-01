@@ -973,24 +973,22 @@ client.on(Events.MessageCreate, async message => {
                             message.content.startsWith('!ai') && 
                             message.member.permissions.has(PermissionFlagsBits.Administrator);
 
-    if (config.openaiApiKey && (isAiSupportChannel || isTicketAdminAi)) {
+    if (config.hfApiKey && (isAiSupportChannel || isTicketAdminAi)) {
         const query = isTicketAdminAi ? message.content.slice(3).trim() : message.content;
         if (!query) return;
 
         try {
             const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
             
-            const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', { // Ensure this is the correct endpoint
+            // Using Hugging Face Inference API (Mistral-7B as an example)
+            const aiResponse = await fetch('https://api-inference.huggingface.co/v1/chat/completions', {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Authorization': `Bearer ${config.hfApiKey}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    // It's good practice to explicitly set the model.
-                    // gpt-4o-mini is a good choice for cost-effectiveness and speed.
-                    // If you encounter 404, try 'gpt-3.5-turbo' as a fallback.
-                    model: 'gpt-4o-mini',
+                    model: 'mistralai/Mistral-7B-Instruct-v0.3',
                     messages: [
                         { 
                             role: 'system', 
@@ -1004,8 +1002,14 @@ client.on(Events.MessageCreate, async message => {
 
             if (!aiResponse.ok) {
                 const errorBody = await aiResponse.json().catch(() => ({ message: 'No JSON error body' }));
-                console.error('OpenAI API Error Details:', errorBody);
-                throw new Error(`AI API returned ${aiResponse.status}: ${errorBody.message || JSON.stringify(errorBody)}`);
+                
+                if (aiResponse.status === 429) {
+                    await typingMsg.edit("⚠️ **AI Rate Limited:** Sobrang dami ng request sa Hugging Face. Subukan muli mamaya.");
+                    return;
+                }
+
+                console.error('HF API Error Details:', errorBody);
+                throw new Error(`AI API returned ${aiResponse.status}`);
             }
             
             const aiData = await aiResponse.json();
