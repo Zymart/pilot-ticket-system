@@ -980,13 +980,16 @@ client.on(Events.MessageCreate, async message => {
         try {
             const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
             
-            const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+            const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', { // Ensure this is the correct endpoint
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${config.openaiApiKey}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    // It's good practice to explicitly set the model.
+                    // gpt-4o-mini is a good choice for cost-effectiveness and speed.
+                    // If you encounter 404, try 'gpt-3.5-turbo' as a fallback.
                     model: 'gpt-4o-mini',
                     messages: [
                         { 
@@ -999,7 +1002,11 @@ client.on(Events.MessageCreate, async message => {
                 })
             });
 
-            if (!aiResponse.ok) throw new Error(`AI API returned ${aiResponse.status}`);
+            if (!aiResponse.ok) {
+                const errorBody = await aiResponse.json().catch(() => ({ message: 'No JSON error body' }));
+                console.error('OpenAI API Error Details:', errorBody);
+                throw new Error(`AI API returned ${aiResponse.status}: ${errorBody.message || JSON.stringify(errorBody)}`);
+            }
             
             const aiData = await aiResponse.json();
             const text = aiData.choices?.[0]?.message?.content || "I couldn't generate a response.";
