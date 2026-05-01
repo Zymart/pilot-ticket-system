@@ -668,7 +668,7 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
             const parts = interaction.customId.split('_');
             const sellerId = parts[2];
             const productName = parts.slice(3).join('_');
-            const tradeCategory = '1381279668329775276';
+            const tradeCategory = config.system.tradeCategoryId;
             const guildConfig = config.system;
 
             try {
@@ -965,38 +965,37 @@ client.on(Events.MessageCreate, async message => {
     }
 
     // AI Support Logic:
-    // 1. Detects "normal talk" in the specific AI channel (1499678431695077507)
+    // 1. Detects "normal talk" in the specific AI channel
     // 2. In tickets, it only triggers for Admins using the !ai command
-    const AI_SUPPORT_CHANNEL_ID = '1499678431695077507';
-    const isAiSupportChannel = message.channel.id === AI_SUPPORT_CHANNEL_ID;
+    const isAiSupportChannel = message.channel.id === config.system.aiSupportChannelId;
     const isTicketAdminAi = isTicketChannel(message.channel) && 
-                            message.content.startsWith('!ai') && 
+                            message.content.toLowerCase().startsWith('!ai') && 
                             message.member.permissions.has(PermissionFlagsBits.Administrator);
 
     if (config.hfApiKey && (isAiSupportChannel || isTicketAdminAi)) {
         const query = isTicketAdminAi ? message.content.slice(3).trim() : message.content;
         if (!query) return;
 
+        const systemContext = `You are an assistant for TMARYZ DISCORD PILOT SERVICE.
+        Rules for Pilot: Never use account while pilot is ongoing. Coordinate with guidelines. Do not rush. No refunds once paid.
+        Rules for Trading: Trade with proof (screenshots/video). No middleman = trade at own risk. Scamming results in a ban.
+        Answer user questions briefly, professionally, and use the rules above to guide your answers.`;
+
         try {
             const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
             
-            // Using Hugging Face Inference API (Mistral-7B as an example)
-            const aiResponse = await fetch('https://api-inference.huggingface.co/v1/chat/completions', {
+            // Using the direct model endpoint which is more reliable for Mistral-7B-Instruct-v0.3
+            const aiResponse = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${config.hfApiKey}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    model: 'mistralai/Mistral-7B-Instruct-v0.3',
-                    messages: [
-                        { 
-                            role: 'system', 
-                            content: 'You are a helpful assistant for TMARYZ DISCORD PILOT SERVICE. Answer user questions briefly, professionally, and helpfully.' 
-                        },
-                        { role: 'user', content: query }
-                    ],
-                    max_tokens: 500
+                    // Using the official Mistral prompt template [INST] [/INST]
+                    inputs: `<s>[INST] ${systemContext}\n\nUser Question: ${query} [/INST]`,
+                    parameters: { max_new_tokens: 500, return_full_text: false },
+                    options: { wait_for_model: true }
                 })
             });
 
@@ -1008,12 +1007,14 @@ client.on(Events.MessageCreate, async message => {
                     return;
                 }
 
-                console.error('HF API Error Details:', errorBody);
-                throw new Error(`AI API returned ${aiResponse.status}`);
+                const errorMessage = errorBody.error || errorBody.message || 'Unknown HF Error';
+                console.error('HF API Error Details:', errorMessage);
+                throw new Error(`AI API returned ${aiResponse.status}: ${errorMessage}`);
             }
             
             const aiData = await aiResponse.json();
-            const text = aiData.choices?.[0]?.message?.content || "I couldn't generate a response.";
+            // The standard Inference API returns an array. We access the first result.
+            const text = aiData[0]?.generated_text || aiData.generated_text || "I couldn't generate a response.";
 
             await typingMsg.edit({
                 content: `✨ **AI Assistant:**\n${text}`,

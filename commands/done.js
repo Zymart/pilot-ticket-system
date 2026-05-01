@@ -3,6 +3,7 @@ const {
     PermissionFlagsBits,
     EmbedBuilder
 } = require('discord.js');
+const config = require('../config');
 const {
     buildTranscriptAttachment,
     createTranscript,
@@ -12,11 +13,6 @@ const {
     removeTicketByChannel,
     resolveTicketSummary
 } = require('../utils/ticketHelpers');
-
-const FACEBOOK_VOUCH_URL = 'https://www.facebook.com/share/v/1HC628gfWL/';
-const VOUCH_CHANNEL_ID = '1381279964300841062';
-const ORDERS_COMPLETED_CHANNEL_ID = '1498621701670568046';
-const TRADE_LOG_CHANNEL_ID = '1381279878313148546';
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -46,8 +42,8 @@ module.exports = {
                 ticketData,
                 interaction.user.tag
             );
-            const vouchChannel = interaction.guild.channels.cache.get(VOUCH_CHANNEL_ID);
-            const vouchDestination = vouchChannel ? `${vouchChannel}` : `Channel ID: ${VOUCH_CHANNEL_ID}`;
+            const vouchChannel = interaction.guild.channels.cache.get(config.system.vouchChannelId);
+            const vouchDestination = vouchChannel ? `${vouchChannel}` : `Channel ID: ${config.system.vouchChannelId}`;
 
             const completionEmbed = new EmbedBuilder()
                 .setTitle('Transaction Complete')
@@ -74,7 +70,7 @@ module.exports = {
                 completionEmbed.setDescription(
                     [
                         'Please Vouch us In Our Facebook Post:',
-                        FACEBOOK_VOUCH_URL,
+                        config.system.facebookVouchUrl,
                         '',
                         `Or Vouch us in ${vouchDestination}`,
                         '',
@@ -124,7 +120,7 @@ module.exports = {
                     }
                 }
 
-                const tradeLogChannel = interaction.guild.channels.cache.get(TRADE_LOG_CHANNEL_ID);
+                const tradeLogChannel = interaction.guild.channels.cache.get(config.system.tradeLogChannelId);
                 if (tradeLogChannel) {
                     const logEmbed = new EmbedBuilder()
                         .setTitle('📝 Trade Transaction Log')
@@ -149,7 +145,7 @@ module.exports = {
             if (!summary.isTrade) {
                 const counterResult = await incrementCounterChannel(
                     interaction.guild,
-                    ORDERS_COMPLETED_CHANNEL_ID
+                    config.system.ordersCompletedChannelId
                 ).catch(error => {
                     console.error('Order counter update failed:', error);
                     return { updated: false, reason: 'rename_failed' };
