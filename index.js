@@ -16,7 +16,7 @@ const {
     ButtonStyle,
     MessageFlags
 } = require('discord.js');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -29,10 +29,6 @@ const {
     isTicketChannel,
     removeTicketByChannel
 } = require('./utils/ticketHelpers');
-
-// Initialize AI
-const genAI = config.aiApiKey ? new GoogleGenerativeAI(config.aiApiKey) : null;
-const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { apiVersion: 'v1' }) : null;
 
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
@@ -977,7 +973,7 @@ client.on(Events.MessageCreate, async message => {
                             message.content.startsWith('!ai') && 
                             message.member.permissions.has(PermissionFlagsBits.Administrator);
 
-    if (aiModel && (isAiSupportChannel || isTicketAdminAi)) {
+    if (config.aiApiKey && (isAiSupportChannel || isTicketAdminAi)) {
         const query = isTicketAdminAi ? message.content.slice(3).trim() : message.content;
         if (!query) return;
 
@@ -986,9 +982,21 @@ client.on(Events.MessageCreate, async message => {
 
         try {
             const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
-            const result = await aiModel.generateContent(prompt);
-            const response = await result.response;
-            const text = response.text();
+            
+            const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${config.aiApiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [{ text: prompt }]
+                    }]
+                })
+            });
+
+            if (!aiResponse.ok) throw new Error(`AI API returned ${aiResponse.status}`);
+            
+            const aiData = await aiResponse.json();
+            const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response.";
 
             await typingMsg.edit({
                 content: `✨ **AI Assistant:**\n${text}`,
