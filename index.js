@@ -16,6 +16,7 @@ const {
     ButtonStyle,
     MessageFlags
 } = require('discord.js');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
@@ -28,6 +29,9 @@ const {
     isTicketChannel,
     removeTicketByChannel
 } = require('./utils/ticketHelpers');
+
+// Initialize AI
+const genAI = config.aiApiKey ? new GoogleGenerativeAI(config.aiApiKey) : null;
 
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
@@ -960,6 +964,29 @@ client.on(Events.MessageCreate, async message => {
         
         // Re-send guide to keep it at the bottom (sticky)
         await sendPostGuide(message.channel);
+        return;
+    }
+
+    // AI Support Logic for Ticket Channels
+    if (genAI && isTicketChannel(message.channel) && message.content.startsWith('!ai')) {
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const prompt = `You are a helpful assistant for TMARYZ DISCORD PILOT SERVICE. 
+        Answer the following user question briefly and professionally: ${message.content.replace('!ai', '')}`;
+
+        try {
+            const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
+            const result = await model.generateContent(prompt);
+            const response = await result.response;
+            const text = response.text();
+
+            await typingMsg.edit({
+                content: `✨ **AI Assistant:**\n${text}`,
+                allowedMentions: { repliedUser: false }
+            });
+        } catch (error) {
+            console.error('AI Response Error:', error);
+            await message.channel.send("⚠️ Sorry, I'm having trouble connecting to my AI brain right now.");
+        }
         return;
     }
 
