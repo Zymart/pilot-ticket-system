@@ -18,7 +18,7 @@ module.exports = {
             // Fetch all members of the guild
             // Requires GuildMembers intent, which is already enabled in index.js
             const members = await interaction.guild.members.fetch();
-            const humanMembers = members.filter(member => !member.user.bot);
+            const humanMembers = members.filter(member => !member.user.bot && member.id !== interaction.user.id); // Exclude bots and the command executor
             
             await interaction.editReply({
                 content: `🚀 Starting to send DMs to **${humanMembers.size}** members. This will take roughly **${Math.ceil(humanMembers.size * 0.3)}** seconds due to rate limits...`

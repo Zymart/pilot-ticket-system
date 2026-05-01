@@ -334,15 +334,15 @@ async function autoPostAnimeSuggestions() {
                     const detailedAnime = detailData.data;
 
                     // Add Genres/Themes
-                    const genres = detailedAnime.genres.map(g => g.name);
-                    const themes = detailedAnime.themes.map(t => t.name);
+                    const genres = detailedAnime.genres?.map(g => g.name) || [];
+                    const themes = detailedAnime.themes?.map(t => t.name) || [];
                     const categories = [...new Set([...genres, ...themes])]; // Combine and remove duplicates
                     if (categories.length > 0) {
                         embed.addFields({ name: '📚 Categories', value: categories.slice(0, 3).join(', ') || 'N/A', inline: true });
                     }
 
                     // Add Streaming Platforms
-                    const streamingPlatforms = detailedAnime.streaming.map(s => s.name);
+                    const streamingPlatforms = detailedAnime.streaming?.map(s => s.name) || [];
                     if (streamingPlatforms.length > 0) {
                         embed.addFields({ name: '📺 Available On', value: streamingPlatforms.slice(0, 3).join(', ') || 'N/A', inline: true });
                     }
