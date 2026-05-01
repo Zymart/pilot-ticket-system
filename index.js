@@ -32,7 +32,7 @@ const {
 
 // Initialize AI
 const genAI = config.aiApiKey ? new GoogleGenerativeAI(config.aiApiKey) : null;
-const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { apiVersion: 'v1' }) : null;
+const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-1.5-flash" }) : null;
 
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
