@@ -983,7 +983,7 @@ client.on(Events.MessageCreate, async message => {
         try {
             const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
             
-            const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${config.aiApiKey}`, {
+            const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.aiApiKey}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
