@@ -719,23 +719,48 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
                     await seller.send(`📩 **New Trade Inquiry!**\n<@${interaction.user.id}> is interested in buying **${productName}**.\nJoin the trade here: ${tradeChannel}`);
                 } catch (e) { console.error('DM Seller Error:', e); }
 
-                // Trading Rules for Buyer
-                const tradeRules = `\`\`\`RULES FOR TRADING\n\nAlways trade with proof. Screenshots or video recordings are highly recommended before, during, and after the trade.\n\nDo not rush trades. Take your time to confirm all items or currency involved before accepting any trade.\n\nNo middleman = Trade at your own risk. If you refuse a trusted middleman, we are not responsible for any loss.\n\nOnce the trade is completed, it's final. No refunds or exchanges unless agreed beforehand by both parties and proven with evidence.\n\nNever trade outside of approved platforms. This helps us ensure a safe and secure trading environment.\n\nScamming = Permanent ban. No warnings will be given if caught attempting or committing a scam.\n\nDo not impersonate staff or other users. Impersonation will result in an immediate ban.\n\nDo not spam or beg for items. This creates a negative experience for others and is not tolerated.\`\`\``;
+                // Trading Rules for Buyer (moved to a separate function or constant if used elsewhere)
+                const tradeRules = `\`\`\`RULES FOR TRADING
+
+Always trade with proof. Screenshots or video recordings are highly recommended before, during, and after the trade.
+
+Do not rush trades. Take your time to confirm all items or currency involved before accepting any trade.
+
+No middleman = Trade at your own risk. If you refuse a trusted middleman, we are not responsible for any loss.
+
+Once the trade is completed, it's final. No refunds or exchanges unless agreed beforehand by both parties and proven with evidence.
+
+Never trade outside of approved platforms. This helps us ensure a safe and secure trading environment.
+
+Scamming = Permanent ban. No warnings will be given if caught attempting or committing a scam.
+
+Do not impersonate staff or other users. Impersonation will result in an immediate ban.
+
+Do not spam or beg for items. This creates a negative experience for others and is not tolerated.\`\`\``;
 
                 try {
                     await interaction.user.send(tradeRules);
                 } catch (e) { console.error('DM Buyer Error:', e); }
 
-                const closeRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`close_${interaction.user.id}`)
-                        .setLabel('Close Ticket')
-                        .setStyle(ButtonStyle.Danger)
-                        .setEmoji('🔒')
-                );
+                const actionRows = [
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`close_${interaction.user.id}`)
+                            .setLabel('Close Ticket')
+                            .setStyle(ButtonStyle.Danger)
+                            .setEmoji('🔒')
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('call_midman')
+                            .setLabel('Call a Midman')
+                            .setStyle(ButtonStyle.Secondary)
+                            .setEmoji('🚨')
+                    )
+                ];
 
                 await tradeChannel.send({
-                    content: `<@${interaction.user.id}>, please check your DMs for the Trading Rules.\n\n**When your transaction is done please type /done**`,
+                    content: `<@${interaction.user.id}>, please check your DMs for the Trading Rules.\n\n**When your transaction is done please type /done**\n\nIf you would like to be helped by admin click the button "Call a Midman"`,
                     embeds: [
                         new EmbedBuilder()
                             .setTitle('🤝 New Trade Session')
@@ -743,13 +768,60 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
                             .setColor(0x9B59B6)
                             .setTimestamp()
                     ],
-                    components: [closeRow]
+                    components: actionRows
                 });
 
                 await interaction.editReply(`✅ Trade ticket created: ${tradeChannel}`);
             } catch (error) {
                 console.error('Trade Ticket creation failed:', error);
                 await interaction.editReply('❌ Failed to create trade ticket. Check bot permissions.');
+            }
+            return;
+        }
+
+        if (interaction.isButton() && interaction.customId === 'call_midman') {
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+            if (!isTicketChannel(interaction.channel)) {
+                return await interaction.editReply({
+                    content: '❌ This button can only be used in ticket channels.'
+                });
+            }
+
+            const guildConfig = config.system;
+            let pingContent = `🚨 **Midman called by ${interaction.user.tag}!**`;
+
+            if (guildConfig?.supportRoleIds?.length > 0) {
+                const roleMentions = guildConfig.supportRoleIds.map(id => `<@&${id}>`).join(' ');
+                pingContent += ` ${roleMentions}`;
+            } else {
+                pingContent += ` (No support roles configured to ping.)`;
+            }
+
+            try {
+                await interaction.channel.send(pingContent);
+
+                // Disable the button after it's clicked
+                const originalMessage = interaction.message;
+                const updatedComponents = originalMessage.components.map(row => {
+                    return new ActionRowBuilder().addComponents(
+                        row.components.map(component => {
+                            if (component.customId === 'call_midman') {
+                                return ButtonBuilder.from(component).setDisabled(true);
+                            }
+                            return component;
+                        })
+                    );
+                });
+
+                await originalMessage.edit({ components: updatedComponents });
+
+                await interaction.editReply({
+                    content: '✅ Support roles have been notified!'
+                });
+            } catch (error) {
+                console.error('Call midman failed:', error);
+                await interaction.editReply({ content: '❌ Failed to call a midman.' });
             }
             return;
         }

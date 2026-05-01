@@ -144,21 +144,24 @@ module.exports = {
                 }
             }
 
-            const counterResult = await incrementCounterChannel(
-                interaction.guild,
-                ORDERS_COMPLETED_CHANNEL_ID
-            ).catch(error => {
-                console.error('Order counter update failed:', error);
-                return { updated: false, reason: 'rename_failed' };
-            });
+            let replyContent = `✅ **Transaction marked complete!**\n\n${dmStatus}\n`;
+
+            if (!summary.isTrade) {
+                const counterResult = await incrementCounterChannel(
+                    interaction.guild,
+                    ORDERS_COMPLETED_CHANNEL_ID
+                ).catch(error => {
+                    console.error('Order counter update failed:', error);
+                    return { updated: false, reason: 'rename_failed' };
+                });
+                if (counterResult.updated) {
+                    replyContent += `📈 Orders completed counter is now **${counterResult.nextValue}**.\n`;
+                }
+            }
 
             removeTicketByChannel(configManager, interaction.channel.id);
-
-            await interaction.editReply({
-                content: `✅ **Transaction marked complete!**\n\n${dmStatus}\n` +
-                    (counterResult.updated ? `📈 Orders completed counter is now **${counterResult.nextValue}**.\n` : '') +
-                    '\nDeleting this ticket and all linked channels in 5 seconds...'
-            });
+            replyContent += '\nDeleting this ticket and all linked channels in 5 seconds...';
+            await interaction.editReply({ content: replyContent });
 
             setTimeout(async () => {
                 try {
