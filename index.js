@@ -123,13 +123,25 @@ async function autoPostAnimeNews() {
     if (!channel) return;
 
     try {
-        const response = await fetch('https://api.jikan.moe/v4/seasons/now?limit=5');
-        const data = await response.json();
+        // Fetch New Episode Releases (Watch Feed)
+        const epRes = await fetch('https://api.jikan.moe/v4/watch/episodes?limit=5');
+        const epData = await epRes.json();
 
-        if (!data.data || data.data.length === 0) return;
+        // Fetch Upcoming Anime
+        const upcomingRes = await fetch('https://api.jikan.moe/v4/seasons/upcoming?limit=5');
+        const upcomingData = await upcomingRes.json();
 
-        // Compare current IDs with the last posted IDs to detect new "news"
-        const currentIds = data.data.map(anime => anime.mal_id).join(',');
+        // Fetch Recently Finished or Top Airing (Season data)
+        const seasonRes = await fetch('https://api.jikan.moe/v4/seasons/now?limit=10');
+        const seasonData = await seasonRes.json();
+
+        if (!epData.data || !upcomingData.data || !seasonData.data) return;
+
+        // Generate a composite key to track state changes based on latest items
+        const latestEpId = epData.data[0]?.entry?.mal_id || '';
+        const latestUpcomingId = upcomingData.data[0]?.mal_id || '';
+        const currentIds = `eps:${latestEpId}-up:${latestUpcomingId}`;
+
         const state = configManager.getAnimeState();
         if (state.lastIds === currentIds) {
             console.log('No new anime updates found since the last post.');
@@ -137,19 +149,34 @@ async function autoPostAnimeNews() {
         }
 
         const embed = new EmbedBuilder()
-            .setTitle('📢 Daily Anime Updates')
-            .setDescription('Here are the top airing anime trending right now:')
+            .setTitle('📺 Latest Anime News & Releases')
+            .setDescription('Stay updated with new episode releases, upcoming titles, and season highlights!')
             .setColor(0x2E51A2)
             .setTimestamp()
             .setFooter({ text: 'Auto-posted via Jikan API' });
 
-        data.data.forEach(anime => {
-            embed.addFields({
-                name: anime.title,
-                value: `⭐ **Score:** ${anime.score || 'N/A'}\n🎭 **Genres:** ${anime.genres.map(g => g.name).join(', ')}\n🔗 View on MAL`,
-                inline: false
-            });
-        });
+        // Section: New Episode Releases
+        const recentEps = epData.data.slice(0, 5).map(item => {
+            const ep = item.episodes?.[0]?.mal_id || 'New Episode';
+            return `• **${item.entry.title}** - ${ep}`;
+        }).join('\n');
+        embed.addFields({ name: '🆕 New Episode Releases', value: recentEps || 'None recorded.' });
+
+        // Section: Upcoming Anime
+        const upcoming = upcomingData.data.slice(0, 5).map(anime => {
+            return `• **${anime.title}** (${anime.aired?.string || 'TBA'})`;
+        }).join('\n');
+        embed.addFields({ name: '⏳ Upcoming Series', value: upcoming || 'No upcoming anime found.' });
+
+        // Section: Recently Finished / Trending
+        const finished = seasonData.data.filter(a => a.status === 'Finished Airing').slice(0, 3);
+        if (finished.length > 0) {
+            const finishedList = finished.map(a => `• **${a.title}** (Completed)`).join('\n');
+            embed.addFields({ name: '🏁 Recently Finished', value: finishedList });
+        } else {
+            const trending = seasonData.data.slice(0, 3).map(a => `• **${a.title}** (Rating: ${a.score || 'N/A'})`).join('\n');
+            embed.addFields({ name: '🔥 Top Airing Now', value: trending });
+        }
 
         await channel.send({ embeds: [embed] });
         
