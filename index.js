@@ -290,6 +290,54 @@ async function autoPostMangaNews() {
     }
 }
 
+async function autoPostAnimeSuggestions() {
+    const channelId = config.system.animeSuggestChannelId;
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return;
+
+    try {
+        const response = await fetch('https://api.jikan.moe/v4/recommendations/anime');
+        const data = await response.json();
+
+        if (!data.data || data.data.length === 0) return;
+
+        // Pick 3 random recommendations
+        const shuffled = data.data.sort(() => 0.5 - Math.random());
+        const suggestions = shuffled.slice(0, 3);
+
+        // Create a unique key for these 3 suggestions to avoid posting the exact same set twice
+        const currentIds = suggestions.map(s => s.entry[0].mal_id).join(',');
+        const state = configManager.getSuggestionState();
+
+        if (state.lastIds === currentIds) return;
+
+        console.log('Posting automated anime suggestions...');
+
+        for (const rec of suggestions) {
+            const anime = rec.entry[0];
+            
+            const embed = new EmbedBuilder()
+                .setTitle(`✨ Automated Suggestion: ${anime.title}`)
+                .setDescription(`**Why you should watch it:**\n${rec.content.substring(0, 450)}...`)
+                .setURL(anime.url)
+                .setImage(anime.images?.jpg?.large_image_url || anime.images?.jpg?.image_url)
+                .setColor(0x8A2BE2)
+                .setTimestamp()
+                .setFooter({ text: 'Daily Suggestions • Data by Jikan' });
+
+            await channel.send({ embeds: [embed] });
+            
+            // 2-second delay between each of the 3 posts
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
+        configManager.setSuggestionState({ lastIds: currentIds });
+
+    } catch (error) {
+        console.error('Auto anime suggestions failed:', error);
+    }
+}
+
 async function checkAndCleanOldPosts() {
     console.log('Running old post cleanup...');
     const allPosts = configManager.getAllPosts();
@@ -349,6 +397,10 @@ client.once(Events.ClientReady, async () => {
     // Start periodic Manga News updates - checking every minute for changes
     await autoPostMangaNews(); // Run once on startup
     setInterval(autoPostMangaNews, 60 * 1000); // Run every minute
+
+    // Start periodic Anime Suggestions - checking every 24 hours
+    await autoPostAnimeSuggestions(); // Run once on startup
+    setInterval(autoPostAnimeSuggestions, 24 * 60 * 60 * 1000); // 24 hours
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });

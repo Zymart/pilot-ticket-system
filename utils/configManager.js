@@ -10,6 +10,7 @@ class ConfigManager {
         this.posts = new Map(); // New: Store post data for cleanup
         this.animeState = {};
         this.mangaState = {};
+        this.suggestionState = {};
     }
 
     init() {
@@ -27,6 +28,7 @@ class ConfigManager {
             Object.entries(d.posts || {}).forEach(([k,v]) => this.posts.set(k,v)); // New: Load posts
             this.animeState = d.animeState || {};
             this.mangaState = d.mangaState || {};
+            this.suggestionState = d.suggestionState || {};
         } catch (err) {
             console.error('Load failed:', err);
         }
@@ -39,6 +41,7 @@ class ConfigManager {
             posts: Object.fromEntries(this.posts), // New: Save posts
             animeState: this.animeState,
             mangaState: this.mangaState,
+            suggestionState: this.suggestionState,
             savedAt: new Date().toISOString()
         };
         
@@ -87,6 +90,15 @@ class ConfigManager {
 
     setMangaState(state) {
         this.mangaState = state;
+        this.save();
+    }
+
+    getSuggestionState() {
+        return this.suggestionState;
+    }
+
+    setSuggestionState(state) {
+        this.suggestionState = state;
         this.save();
     }
 }
