@@ -314,6 +314,7 @@ async function autoPostAnimeSuggestions() {
         console.log('Posting automated anime suggestions...');
 
         for (const rec of suggestions) {
+            // Fetch full details for each recommended anime to get genres and streaming info
             const anime = rec.entry[0];
             
             const embed = new EmbedBuilder()
@@ -324,6 +325,31 @@ async function autoPostAnimeSuggestions() {
                 .setColor(0x8A2BE2)
                 .setTimestamp()
                 .setFooter({ text: 'Daily Suggestions • Data by Jikan' });
+
+            try {
+                const detailResponse = await fetch(`https://api.jikan.moe/v4/anime/${anime.mal_id}`);
+                const detailData = await detailResponse.json();
+
+                if (detailData.data) {
+                    const detailedAnime = detailData.data;
+
+                    // Add Genres/Themes
+                    const genres = detailedAnime.genres.map(g => g.name);
+                    const themes = detailedAnime.themes.map(t => t.name);
+                    const categories = [...new Set([...genres, ...themes])]; // Combine and remove duplicates
+                    if (categories.length > 0) {
+                        embed.addFields({ name: '📚 Categories', value: categories.slice(0, 3).join(', ') || 'N/A', inline: true });
+                    }
+
+                    // Add Streaming Platforms
+                    const streamingPlatforms = detailedAnime.streaming.map(s => s.name);
+                    if (streamingPlatforms.length > 0) {
+                        embed.addFields({ name: '📺 Available On', value: streamingPlatforms.slice(0, 3).join(', ') || 'N/A', inline: true });
+                    }
+                }
+            } catch (detailError) {
+                console.error(`Failed to fetch detailed info for anime ${anime.mal_id}:`, detailError);
+            }
 
             await channel.send({ embeds: [embed] });
             
@@ -398,9 +424,9 @@ client.once(Events.ClientReady, async () => {
     await autoPostMangaNews(); // Run once on startup
     setInterval(autoPostMangaNews, 60 * 1000); // Run every minute
 
-    // Start periodic Anime Suggestions - checking every 24 hours
+    // Start periodic Anime Suggestions - checking every 1 hour
     await autoPostAnimeSuggestions(); // Run once on startup
-    setInterval(autoPostAnimeSuggestions, 24 * 60 * 60 * 1000); // 24 hours
+    setInterval(autoPostAnimeSuggestions, 1 * 60 * 60 * 1000); // 1 hour
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
