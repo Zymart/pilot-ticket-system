@@ -12,6 +12,7 @@ module.exports = {
         postChannelId: '1498927368587182180',
         guideChannelId: '1498927587773382666',
         animeNewsChannelId: '1499678431695077507',
+        mangaNewsChannelId: '1499705817169924156',
         tradeCategoryId: '1381279668329775276',
         vouchChannelId: '1381279964300841062',
         ordersCompletedChannelId: '1498621701670568046',

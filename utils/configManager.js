@@ -9,6 +9,7 @@ class ConfigManager {
         this.tickets = new Map();
         this.posts = new Map(); // New: Store post data for cleanup
         this.animeState = {};
+        this.mangaState = {};
     }
 
     init() {
@@ -25,6 +26,7 @@ class ConfigManager {
             Object.entries(d.tickets || {}).forEach(([k,v]) => this.tickets.set(k,v));
             Object.entries(d.posts || {}).forEach(([k,v]) => this.posts.set(k,v)); // New: Load posts
             this.animeState = d.animeState || {};
+            this.mangaState = d.mangaState || {};
         } catch (err) {
             console.error('Load failed:', err);
         }
@@ -36,6 +38,7 @@ class ConfigManager {
             tickets: Object.fromEntries(this.tickets),
             posts: Object.fromEntries(this.posts), // New: Save posts
             animeState: this.animeState,
+            mangaState: this.mangaState,
             savedAt: new Date().toISOString()
         };
         

@@ -214,6 +214,82 @@ async function autoPostAnimeNews() {
     }
 }
 
+async function autoPostMangaNews() {
+    const channelId = config.system.mangaNewsChannelId;
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) return;
+
+    try {
+        // Fetch New Chapter Releases
+        const chRes = await fetch('https://api.mangadex.org/chapter?limit=3&order[readableAt]=desc&contentRating[]=safe&includes[]=manga&includes[]=cover_art&translatedLanguage[]=en');
+        const chData = await chRes.json();
+
+        // Fetch Recently Added Manga Titles (New/Upcoming)
+        const mgRes = await fetch('https://api.mangadex.org/manga?limit=2&order[createdAt]=desc&contentRating[]=safe&includes[]=cover_art');
+        const mgData = await mgRes.json();
+
+        if (!chData.data) return;
+
+        const currentIds = [
+            ...(chData.data?.map(ch => ch.id) || []),
+            ...(mgData.data?.map(mg => mg.id) || [])
+        ].join(',');
+
+        const state = configManager.getMangaState();
+        if (state.lastIds === currentIds) return;
+
+        // Post New Chapters
+        for (const chapter of chData.data) {
+            const mangaRel = chapter.relationships.find(r => r.type === 'manga');
+            const coverRel = chapter.relationships.find(r => r.type === 'cover_art');
+            const mangaTitle = mangaRel?.attributes?.title?.en || mangaRel?.attributes?.title?.['ja-ro'] || 'New Manga';
+            const mangaId = mangaRel?.id;
+            const fileName = coverRel?.attributes?.fileName;
+            
+            const embed = new EmbedBuilder()
+                .setTitle(`📖 New Manga Chapter: ${mangaTitle}`)
+                .setDescription(`Chapter **${chapter.attributes.chapter}** is now available on MangaDex!`)
+                .setURL(`https://mangadex.org/chapter/${chapter.id}`)
+                .setColor(0xFF6740) // MangaDex Orange
+                .setTimestamp()
+                .setFooter({ text: 'Powered by MangaDex API' });
+
+            if (mangaId && fileName) {
+                embed.setImage(`https://uploads.mangadex.org/covers/${mangaId}/${fileName}`);
+            }
+
+            await channel.send({ embeds: [embed] });
+        }
+
+        // Post New Manga Titles
+        if (mgData.data) {
+            for (const manga of mgData.data) {
+                const coverRel = manga.relationships.find(r => r.type === 'cover_art');
+                const mangaTitle = manga.attributes.title.en || manga.attributes.title['ja-ro'] || 'New Title';
+                const fileName = coverRel?.attributes?.fileName;
+
+                const embed = new EmbedBuilder()
+                    .setTitle(`🌟 New Manga: ${mangaTitle}`)
+                    .setDescription(truncateText(manga.attributes.description?.en || 'No description available.', 500))
+                    .setURL(`https://mangadex.org/manga/${manga.id}`)
+                    .setColor(0x5865F2)
+                    .setTimestamp();
+
+                if (fileName) {
+                    embed.setImage(`https://uploads.mangadex.org/covers/${manga.id}/${fileName}`);
+                }
+
+                await channel.send({ embeds: [embed] });
+            }
+        }
+
+        configManager.setMangaState({ lastIds: currentIds });
+        console.log(`Successfully posted manga updates to ${channelId}`);
+    } catch (error) {
+        console.error('Auto manga news post failed:', error);
+    }
+}
+
 async function checkAndCleanOldPosts() {
     console.log('Running old post cleanup...');
     const allPosts = configManager.getAllPosts();
@@ -269,6 +345,10 @@ client.once(Events.ClientReady, async () => {
     // Start periodic Anime News updates - checking every minute for changes
     await autoPostAnimeNews(); // Run once on startup
     setInterval(autoPostAnimeNews, 60 * 1000); // Run every minute
+
+    // Start periodic Manga News updates - checking every minute for changes
+    await autoPostMangaNews(); // Run once on startup
+    setInterval(autoPostMangaNews, 60 * 1000); // Run every minute
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
