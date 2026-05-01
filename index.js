@@ -32,6 +32,7 @@ const {
 
 // Initialize AI
 const genAI = config.aiApiKey ? new GoogleGenerativeAI(config.aiApiKey) : null;
+const aiModel = genAI ? genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { apiVersion: 'v1' }) : null;
 
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
@@ -967,15 +968,14 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
-    // AI Support Logic for Ticket Channels
-    if (genAI && isTicketChannel(message.channel) && message.content.startsWith('!ai')) {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // AI Support Logic: Triggers on any message ending with '?' in any channel
+    if (aiModel && message.content.trim().endsWith('?')) {
         const prompt = `You are a helpful assistant for TMARYZ DISCORD PILOT SERVICE. 
-        Answer the following user question briefly and professionally: ${message.content.replace('!ai', '')}`;
+        Answer the following user question briefly and professionally: ${message.content}`;
 
         try {
             const typingMsg = await message.channel.send("🤔 *AI is thinking...*");
-            const result = await model.generateContent(prompt);
+            const result = await aiModel.generateContent(prompt);
             const response = await result.response;
             const text = response.text();
 
