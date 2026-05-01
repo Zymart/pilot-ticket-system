@@ -128,6 +128,14 @@ async function autoPostAnimeNews() {
 
         if (!data.data || data.data.length === 0) return;
 
+        // Compare current IDs with the last posted IDs to detect new "news"
+        const currentIds = data.data.map(anime => anime.mal_id).join(',');
+        const state = configManager.getAnimeState();
+        if (state.lastIds === currentIds) {
+            console.log('No new anime updates found since the last post.');
+            return;
+        }
+
         const embed = new EmbedBuilder()
             .setTitle('📢 Daily Anime Updates')
             .setDescription('Here are the top airing anime trending right now:')
@@ -144,6 +152,9 @@ async function autoPostAnimeNews() {
         });
 
         await channel.send({ embeds: [embed] });
+        
+        // Update state to prevent duplicate posts
+        configManager.setAnimeState({ lastIds: currentIds });
         console.log(`Successfully posted anime updates to ${channelId}`);
     } catch (error) {
         console.error('Auto anime news post failed:', error);
@@ -202,9 +213,9 @@ client.once(Events.ClientReady, async () => {
     await checkAndCleanOldPosts(); // Run once on startup
     setInterval(checkAndCleanOldPosts, 6 * 60 * 60 * 1000); // Run every 6 hours (adjust as needed)
 
-    // Start periodic Anime News updates
+    // Start periodic Anime News updates - checking every hour for changes
     await autoPostAnimeNews(); // Run once on startup
-    setInterval(autoPostAnimeNews, 24 * 60 * 60 * 1000); // Run every 24 hours
+    setInterval(autoPostAnimeNews, 60 * 60 * 1000); // Run every hour
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });

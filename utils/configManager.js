@@ -8,11 +8,12 @@ class ConfigManager {
         this.configs = new Map();
         this.tickets = new Map();
         this.posts = new Map(); // New: Store post data for cleanup
+        this.animeState = {};
     }
 
     init() {
         this.load();
-        console.log(`Loaded ${this.configs.size} configs, ${this.tickets.size} tickets, ${this.posts.size} posts`);
+        console.log(`Loaded ${this.configs.size} configs, ${this.tickets.size} tickets, ${this.posts.size} posts, anime state initialized: ${!!this.animeState.lastIds}`);
     }
 
     load() {
@@ -23,6 +24,7 @@ class ConfigManager {
             Object.entries(d.guilds || {}).forEach(([k,v]) => this.configs.set(k,v));
             Object.entries(d.tickets || {}).forEach(([k,v]) => this.tickets.set(k,v));
             Object.entries(d.posts || {}).forEach(([k,v]) => this.posts.set(k,v)); // New: Load posts
+            this.animeState = d.animeState || {};
         } catch (err) {
             console.error('Load failed:', err);
         }
@@ -33,6 +35,7 @@ class ConfigManager {
             guilds: Object.fromEntries(this.configs),
             tickets: Object.fromEntries(this.tickets),
             posts: Object.fromEntries(this.posts), // New: Save posts
+            animeState: this.animeState,
             savedAt: new Date().toISOString()
         };
         
@@ -64,6 +67,15 @@ class ConfigManager {
 
     getAllPosts() {
         return Array.from(this.posts.entries());
+    }
+
+    getAnimeState() {
+        return this.animeState;
+    }
+
+    setAnimeState(state) {
+        this.animeState = state;
+        this.save();
     }
 }
 
