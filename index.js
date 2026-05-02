@@ -137,21 +137,17 @@ async function autoPostAnimeNews() {
 
         if (!epData.data || !upcomingData.data || !seasonData.data) return;
 
-        // Generate a composite key to track state changes based on latest items
-        const latestEpId = epData.data[0]?.entry?.mal_id || '';
-        const latestUpcomingId = upcomingData.data[0]?.mal_id || '';
-        const currentIds = `eps:${latestEpId}-up:${latestUpcomingId}`;
-
         const state = configManager.getAnimeState();
-        if (state.lastIds === currentIds) {
-            console.log('No new anime updates found since the last post.');
-            return;
-        }
+        if (!Array.isArray(state.seenIds)) state.seenIds = [];
+        let postedCount = 0;
 
         // Post New Episode Releases Individually
         const recentEps = epData.data.slice(0, 3);
         for (const item of recentEps) {
             const epTitle = item.episodes?.[0]?.title || 'New Episode';
+            const epKey = `ep-${item.entry.mal_id}-${epTitle}`;
+            if (state.seenIds.includes(epKey)) continue;
+
             const epEmbed = new EmbedBuilder()
                 .setTitle(`🆕 New Release: ${item.entry.title}`)
                 .setDescription(`A new episode has just been released!\n**Episode:** ${epTitle}`)
@@ -161,11 +157,16 @@ async function autoPostAnimeNews() {
                 .setTimestamp();
             
             await channel.send({ embeds: [epEmbed] });
+            state.seenIds.push(epKey);
+            postedCount++;
         }
 
         // Post Upcoming Anime Individually
         const upcoming = upcomingData.data.slice(0, 2);
         for (const anime of upcoming) {
+            const upKey = `up-${anime.mal_id}`;
+            if (state.seenIds.includes(upKey)) continue;
+
             const upEmbed = new EmbedBuilder()
                 .setTitle(`⏳ Upcoming: ${anime.title}`)
                 .setDescription(`Get ready! This anime is coming soon.\n**Airing:** ${anime.aired?.string || 'TBA'}`)
@@ -175,12 +176,17 @@ async function autoPostAnimeNews() {
                 .setTimestamp();
 
             await channel.send({ embeds: [upEmbed] });
+            state.seenIds.push(upKey);
+            postedCount++;
         }
 
         // Post Recently Finished or Trending Individually
         const finished = seasonData.data.filter(a => a.status === 'Finished Airing').slice(0, 3);
         if (finished.length > 0) {
             for (const a of finished) {
+                const finKey = `fin-${a.mal_id}`;
+                if (state.seenIds.includes(finKey)) continue;
+
                 const finEmbed = new EmbedBuilder()
                     .setTitle(`🏁 Finished: ${a.title}`)
                     .setDescription(`This series has successfully finished airing! Time to binge-watch?`)
@@ -190,10 +196,15 @@ async function autoPostAnimeNews() {
                     .setTimestamp();
                 
                 await channel.send({ embeds: [finEmbed] });
+                state.seenIds.push(finKey);
+                postedCount++;
             }
         } else {
             const trending = seasonData.data.slice(0, 2);
             for (const a of trending) {
+                const trendKey = `trend-${a.mal_id}`;
+                if (state.seenIds.includes(trendKey)) continue;
+
                 const trendEmbed = new EmbedBuilder()
                     .setTitle(`🔥 Trending: ${a.title}`)
                     .setDescription(`People are talking about this right now!\n**Rating:** ⭐ ${a.score || 'N/A'}`)
@@ -203,12 +214,18 @@ async function autoPostAnimeNews() {
                     .setTimestamp();
 
                 await channel.send({ embeds: [trendEmbed] });
+                state.seenIds.push(trendKey);
+                postedCount++;
             }
         }
         
-        // Update state to prevent duplicate posts
-        configManager.setAnimeState({ lastIds: currentIds });
-        console.log(`Successfully posted anime updates to ${channelId}`);
+        if (postedCount > 0) {
+            // Keep the seen list from growing too large
+            if (state.seenIds.length > 100) state.seenIds = state.seenIds.slice(-100);
+            configManager.setAnimeState(state);
+            console.log(`Successfully posted ${postedCount} anime updates to ${channelId}`);
+        }
+
     } catch (error) {
         console.error('Auto anime news post failed:', error);
     }
@@ -230,16 +247,15 @@ async function autoPostMangaNews() {
 
         if (!chData.data) return;
 
-        const currentIds = [
-            ...(chData.data?.map(ch => ch.id) || []),
-            ...(mgData.data?.map(mg => mg.id) || [])
-        ].join(',');
-
         const state = configManager.getMangaState();
-        if (state.lastIds === currentIds) return;
+        if (!Array.isArray(state.seenIds)) state.seenIds = [];
+        let postedCount = 0;
 
         // Post New Chapters
         for (const chapter of chData.data) {
+            const chKey = `ch-${chapter.id}`;
+            if (state.seenIds.includes(chKey)) continue;
+
             const mangaRel = chapter.relationships.find(r => r.type === 'manga');
             const coverRel = chapter.relationships.find(r => r.type === 'cover_art');
             const mangaTitle = mangaRel?.attributes?.title?.en || mangaRel?.attributes?.title?.['ja-ro'] || 'New Manga';
@@ -259,11 +275,16 @@ async function autoPostMangaNews() {
             }
 
             await channel.send({ embeds: [embed] });
+            state.seenIds.push(chKey);
+            postedCount++;
         }
 
         // Post New Manga Titles
         if (mgData.data) {
             for (const manga of mgData.data) {
+                const mgKey = `mg-${manga.id}`;
+                if (state.seenIds.includes(mgKey)) continue;
+
                 const coverRel = manga.relationships.find(r => r.type === 'cover_art');
                 const mangaTitle = manga.attributes.title.en || manga.attributes.title['ja-ro'] || 'New Title';
                 const fileName = coverRel?.attributes?.fileName;
@@ -280,11 +301,17 @@ async function autoPostMangaNews() {
                 }
 
                 await channel.send({ embeds: [embed] });
+                state.seenIds.push(mgKey);
+                postedCount++;
             }
         }
 
-        configManager.setMangaState({ lastIds: currentIds });
-        console.log(`Successfully posted manga updates to ${channelId}`);
+        if (postedCount > 0) {
+            if (state.seenIds.length > 100) state.seenIds = state.seenIds.slice(-100);
+            configManager.setMangaState(state);
+            console.log(`Successfully posted ${postedCount} manga updates to ${channelId}`);
+        }
+
     } catch (error) {
         console.error('Auto manga news post failed:', error);
     }
@@ -305,18 +332,14 @@ async function autoPostAnimeSuggestions() {
         const shuffled = data.data.sort(() => 0.5 - Math.random());
         const suggestions = shuffled.slice(0, 3);
 
-        // Create a unique key for these 3 suggestions to avoid posting the exact same set twice
-        const currentIds = suggestions.map(s => s.entry[0].mal_id).join(',');
         const state = configManager.getSuggestionState();
-
-        if (state.lastIds === currentIds) return;
-
-        console.log('Posting automated anime suggestions...');
+        if (!Array.isArray(state.seenIds)) state.seenIds = [];
+        let postedCount = 0;
 
         for (const rec of suggestions) {
-            // Fetch full details for each recommended anime to get genres and streaming info
             const anime = rec.entry[0];
-            
+            if (state.seenIds.includes(anime.mal_id.toString())) continue;
+
             const embed = new EmbedBuilder()
                 .setTitle(`✨ Automated Suggestion: ${anime.title}`)
                 .setDescription(`**Why you should watch it:**\n${rec.content.substring(0, 450)}...`)
@@ -352,12 +375,15 @@ async function autoPostAnimeSuggestions() {
             }
 
             await channel.send({ embeds: [embed] });
-            
-            // 2-second delay between each of the 3 posts
+            state.seenIds.push(anime.mal_id.toString());
+            postedCount++;
             await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
-        configManager.setSuggestionState({ lastIds: currentIds });
+        if (postedCount > 0) {
+            if (state.seenIds.length > 50) state.seenIds = state.seenIds.slice(-50);
+            configManager.setSuggestionState(state);
+        }
 
     } catch (error) {
         console.error('Auto anime suggestions failed:', error);
@@ -423,16 +449,13 @@ async function autoPostAniListUpdates() {
 
         const trendingAnime = data.data.Page.media.slice(0, 3); // Pick top 3
 
-        const currentIds = trendingAnime.map(anime => anime.id).join(',');
         const state = configManager.getAniListState();
-        if (state.lastIds === currentIds) {
-            console.log('AniList: No new trending anime updates found since last post.');
-            return;
-        }
-
-        console.log('Posting automated AniList updates...');
+        if (!Array.isArray(state.seenIds)) state.seenIds = [];
+        let postedCount = 0;
 
         for (const anime of trendingAnime) {
+            if (state.seenIds.includes(anime.id.toString())) continue;
+
             const embed = new EmbedBuilder()
                 .setTitle(`✨ AniList Trending: ${anime.title.english || anime.title.romaji || anime.title.native}`)
                 .setURL(anime.siteUrl)
@@ -448,11 +471,16 @@ async function autoPostAniListUpdates() {
             if (anime.status) embed.addFields({ name: 'Status', value: anime.status.replace(/_/g, ' '), inline: true });
 
             await channel.send({ embeds: [embed] });
+            state.seenIds.push(anime.id.toString());
+            postedCount++;
             await new Promise(resolve => setTimeout(resolve, 2000)); // Delay between posts
         }
 
-        configManager.setAniListState({ lastIds: currentIds });
-        console.log(`Successfully posted AniList updates to ${channelId}`);
+        if (postedCount > 0) {
+            if (state.seenIds.length > 50) state.seenIds = state.seenIds.slice(-50);
+            configManager.setAniListState(state);
+            console.log(`Successfully posted ${postedCount} AniList updates to ${channelId}`);
+        }
 
     } catch (error) {
         console.error('Auto AniList updates failed:', error);
