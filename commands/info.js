@@ -61,8 +61,12 @@ module.exports = {
                 { name: 'Created', value: `<t:${createdAt}:F>`, inline: false }
             );
         } else {
-            const messages = await interaction.channel.messages.fetch({ limit: 10 });
-            const firstMessage = messages.last();
+            // Fallback: Search the last 100 messages for the bot's initial info embed
+            const messages = await interaction.channel.messages.fetch({ limit: 100 });
+            const firstMessage = messages.find(m => 
+                m.author.id === interaction.client.user.id && 
+                m.embeds.some(e => e.title === '📦 New Web Channel')
+            );
             
             let discordOwner = null;
             let discordOwnerTag = null;

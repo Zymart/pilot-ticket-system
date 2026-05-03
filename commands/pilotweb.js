@@ -9,6 +9,7 @@ const {
     ButtonStyle
 } = require('discord.js');
 const config = require('../config');
+const { resolveTicketSummary } = require('../utils/ticketHelpers');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -79,12 +80,16 @@ module.exports = {
         const channelNameParts = interaction.channel.name.replace('ticket-', '').replace('closed-', '').split('-');
         const usernameFromChannel = channelNameParts[0] || 'unknown';
         
-        const ticketEntry = Array.from(configManager.tickets.entries()).find(([k, v]) => v.channelId === interaction.channel.id);
-        const ticketData = ticketEntry ? ticketEntry[1] : null;
+        // Try to get owner info from memory first, then fallback to scanning the channel
+        const summary = await resolveTicketSummary(configManager, interaction.channel);
         
-        const username = ticketData?.robloxUsername || usernameFromChannel;
-        const discordUserId = ticketData?.userId || interaction.user.id;
-        const discordUserTag = ticketData?.userTag || interaction.user.tag;
+        const username = summary.robloxUsername !== 'Unknown' ? summary.robloxUsername : usernameFromChannel;
+        const discordUserId = summary.ownerId;
+        const discordUserTag = summary.ownerTag;
+
+        if (!discordUserId) {
+            return await interaction.editReply({ content: '❌ Could not determine the ticket owner. Please make sure this is a valid ticket channel.' });
+        }
 
         const cleanUser = username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
         const cleanItem = item.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
