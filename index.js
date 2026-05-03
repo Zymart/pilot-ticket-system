@@ -555,6 +555,10 @@ client.once(Events.ClientReady, async () => {
     await autoPostAniListUpdates(); // Run once on startup
     setInterval(autoPostAniListUpdates, 1 * 60 * 60 * 1000); // 1 hour
 
+    // Check Pilot Timers every minute
+    await checkPilotTimers();
+    setInterval(checkPilotTimers, 60 * 1000);
+
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
 
@@ -1323,7 +1327,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
                 }
 
                 const reply = await interaction.editReply({
-                    content: `📋 **Click to copy:**\n\`\`\`${webhook.url}\`\`\``
+                    content: `📋 **Webhook URL**\n\n**Mobile (Tap to copy):**\n\`${webhook.url}\`\n\n**PC:**\n\`\`\`${webhook.url}\`\`\``
                 });
 
                 autoDeleteMessage(reply, 60000);

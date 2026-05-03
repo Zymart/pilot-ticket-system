@@ -20,7 +20,34 @@ module.exports = {
                 .setName('item')
                 .setDescription('The item name for the channel')
                 .setRequired(true)
+        )
+        .addStringOption(option =>
+            option
+                .setName('timer')
+                .setDescription('Enable a timer for this pilot?')
+                .setRequired(true)
+                .addChoices(
+                    { name: 'Yes', value: 'y' },
+                    { name: 'No', value: 'n' }
+                )
+        )
+        .addStringOption(option =>
+            option
+                .setName('duration')
+                .setDescription('Duration if timer is Yes (e.g., 3 days, 12 hours)')
+                .setRequired(false)
         ),
+
+    parseDuration(str) {
+        const match = str.match(/^(\d+)\s*(d|day|days|h|hour|hours|m|min|mins|minutes)$/i);
+        if (!match) return null;
+        const val = parseInt(match[1]);
+        const unit = match[2].toLowerCase();
+        if (unit.startsWith('d')) return val * 24 * 60 * 60 * 1000;
+        if (unit.startsWith('h')) return val * 60 * 60 * 1000;
+        if (unit.startsWith('m')) return val * 60 * 1000;
+        return null;
+    },
 
     async execute(interaction, { configManager }) {
         if (!interaction.channel.name.startsWith('ticket-') && !interaction.channel.name.startsWith('closed-')) {
@@ -38,7 +65,17 @@ module.exports = {
         }
 
         const item = interaction.options.getString('item');
-        
+        const hasTimer = interaction.options.getString('timer') === 'y';
+        const durationStr = interaction.options.getString('duration');
+        let expiresAt = null;
+
+        if (hasTimer) {
+            if (!durationStr) return await interaction.editReply({ content: '❌ You must provide a duration if timer is enabled.' });
+            const ms = this.parseDuration(durationStr);
+            if (!ms) return await interaction.editReply({ content: '❌ Invalid duration format. Use e.g., "3 days" or "12 hours".' });
+            expiresAt = Date.now() + ms;
+        }
+
         const channelNameParts = interaction.channel.name.replace('ticket-', '').replace('closed-', '').split('-');
         const usernameFromChannel = channelNameParts[0] || 'unknown';
         
@@ -150,15 +187,25 @@ module.exports = {
 
             const createdAt = Math.floor(webChannel.createdTimestamp / 1000);
 
+            const fields = [
+                { name: 'Ticket Owner', value: `<@${discordUserId}> (${discordUserTag})`, inline: true },
+                { name: 'Roblox User', value: username, inline: true },
+                { name: 'Item', value: item, inline: true },
+                { name: 'Created', value: `<t:${createdAt}:F>`, inline: false },
+                { name: 'Ticket Channel', value: `${interaction.channel}`, inline: false }
+            ];
+
+            if (expiresAt) {
+                fields.push({ 
+                    name: '⏳ Deadline', 
+                    value: `<t:${Math.floor(expiresAt / 1000)}:F> (<t:${Math.floor(expiresAt / 1000)}:R>)`, 
+                    inline: false 
+                });
+            }
+
             const infoEmbed = new EmbedBuilder()
                 .setTitle('📦 New Web Channel')
-                .addFields(
-                    { name: 'Ticket Owner', value: `<@${discordUserId}> (${discordUserTag})`, inline: true },
-                    { name: 'Roblox User', value: username, inline: true },
-                    { name: 'Item', value: item, inline: true },
-                    { name: 'Created', value: `<t:${createdAt}:F>`, inline: false },
-                    { name: 'Ticket Channel', value: `${interaction.channel}`, inline: false }
-                )
+                .addFields(fields)
                 .setColor(0x5865F2)
                 .setTimestamp();
 
@@ -185,6 +232,23 @@ module.exports = {
                 embeds: [infoEmbed, webhookEmbed],
                 components: [copyRow]
             });
+
+            // Save timer to state if applicable
+            if (expiresAt) {
+                const state = configManager.getPilotState?.() || { timers: {} };
+                if (!state.timers) state.timers = {};
+                state.timers[webChannel.id] = {
+                    expiresAt,
+                    creatorId: interaction.user.id,
+                    notified: false
+                };
+                configManager.setPilotState?.(state);
+            }
+
+        // Ping the ticket owner in the original ticket channel
+        await interaction.channel.send({
+            content: `🚀 **Pilot Started!** <@${discordUserId}>`
+        });
 
             const reply = await interaction.editReply({
                 content: `✅ Web channel created: ${webChannel}\n**Discord:** ${discordUserTag}\n**Roblox:** ${username}\n**Item:** ${item}`
