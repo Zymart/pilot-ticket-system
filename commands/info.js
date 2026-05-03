@@ -101,6 +101,17 @@ module.exports = {
             );
         }
 
+        // Add Timer information if it exists in the state
+        const state = configManager.getPilotState?.() || { timers: {} };
+        const timer = state.timers?.[interaction.channel.id];
+        if (timer && timer.expiresAt) {
+            infoEmbed.addFields({
+                name: '⏳ Deadline',
+                value: `<t:${Math.floor(timer.expiresAt / 1000)}:F> (<t:${Math.floor(timer.expiresAt / 1000)}:R>)`,
+                inline: false
+            });
+        }
+
         const reply = await interaction.editReply({ embeds: [infoEmbed] });
         
         setTimeout(() => reply.delete().catch(() => {}), 120000);
