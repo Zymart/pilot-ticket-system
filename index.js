@@ -18,7 +18,8 @@ const {
     EmbedBuilder,
     ButtonBuilder,
     ButtonStyle,
-    MessageFlags
+    MessageFlags,
+    version: discordJsVersion
 } = require('discord.js');
 const fetch = require('node-fetch');
 const fs = require('fs');
@@ -39,6 +40,7 @@ console.log('=== CONFIG CHECK ===');
 console.log('Token configured:', !!config.token);
 console.log('Client ID:', config.clientId);
 console.log('Guild ID:', config.guildId);
+console.log('discord.js version:', discordJsVersion);
 if (config.tokenHadBotPrefix) {
     console.log('Token prefix: stripped leading "Bot " from token env value.');
 }
@@ -63,16 +65,11 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildPresences,
         GatewayIntentBits.MessageContent
     ],
     rest: {
         timeout: 60000,
         retries: 3
-    },
-    ws: {
-        large_threshold: 50,
-        compress: false
     }
 });
 
@@ -570,8 +567,19 @@ async function startBot() {
             lastError: 'Discord login started, but ClientReady has not fired yet.'
         });
     }, 45000);
+    loginExitWatchdog = setTimeout(() => {
+        const message = 'Discord login timed out before ClientReady. Restarting Render process.';
+        runtimeStatus.setDiscord({
+            state: 'login_timeout',
+            ready: false,
+            lastError: message
+        });
+        console.error(message);
+        process.exit(1);
+    }, 120000);
 
     client.login(config.token).catch(err => {
+        clearLoginWatchdogs();
         runtimeStatus.setDiscord({
             state: 'login_failed',
             ready: false,
@@ -585,7 +593,20 @@ async function startBot() {
 }
 
 let readyWatchdog;
+let loginExitWatchdog;
 let readyTasksStarted = false;
+
+function clearLoginWatchdogs() {
+    if (readyWatchdog) {
+        clearTimeout(readyWatchdog);
+        readyWatchdog = null;
+    }
+
+    if (loginExitWatchdog) {
+        clearTimeout(loginExitWatchdog);
+        loginExitWatchdog = null;
+    }
+}
 
 async function handleClientReady() {
     if (readyTasksStarted) {
@@ -594,10 +615,7 @@ async function handleClientReady() {
 
     readyTasksStarted = true;
 
-    if (readyWatchdog) {
-        clearTimeout(readyWatchdog);
-        readyWatchdog = null;
-    }
+    clearLoginWatchdogs();
 
     console.log(`✅ Bot ready: ${client.user.tag}`);
     runtimeStatus.setDiscord({
@@ -657,6 +675,16 @@ async function handleClientReady() {
 }
 
 client.once(Events.ClientReady, handleClientReady);
+
+client.on(Events.ShardReady, (shardId, unavailableGuilds) => {
+    runtimeStatus.setDiscord({
+        state: 'shard_ready',
+        ready: false,
+        shardId,
+        unavailableGuildCount: unavailableGuilds?.size || 0
+    });
+    console.log(`Shard ${shardId} ready. Unavailable guilds: ${unavailableGuilds?.size || 0}`);
+});
 
 client.on(Events.Debug, info => {
     const safeInfo = String(info)
@@ -726,6 +754,29 @@ client.on(Events.Invalidated, () => {
         lastError: 'Discord session invalidated'
     });
     console.error('Session invalidated!');
+});
+
+process.on('unhandledRejection', error => {
+    const message = error?.message || String(error);
+    runtimeStatus.setDiscord({
+        lastError: message,
+        lastErrorName: error?.name,
+        lastErrorCode: error?.code
+    });
+    console.error('Unhandled rejection:', error);
+});
+
+process.on('uncaughtException', error => {
+    const message = error?.message || String(error);
+    runtimeStatus.setDiscord({
+        state: 'uncaught_exception',
+        ready: false,
+        lastError: message,
+        lastErrorName: error?.name,
+        lastErrorCode: error?.code
+    });
+    console.error('Uncaught exception:', error);
+    process.exit(1);
 });
 
 function buildCloseActionRow() {
