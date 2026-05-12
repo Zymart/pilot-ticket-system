@@ -542,6 +542,68 @@ async function checkAndCleanOldPosts() {
     console.log('Old post cleanup finished.');
 }
 
+async function preflightDiscordGateway() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    try {
+        console.log('Checking Discord gateway reachability...');
+        runtimeStatus.setDiscord({
+            state: 'checking_gateway',
+            ready: false,
+            lastError: null
+        });
+
+        const response = await fetch('https://discord.com/api/v10/gateway/bot', {
+            headers: {
+                Authorization: `Bot ${config.token}`
+            },
+            signal: controller.signal
+        });
+
+        const body = await response.text();
+        if (!response.ok) {
+            const message = `Discord gateway preflight failed: HTTP ${response.status} ${response.statusText}`;
+            runtimeStatus.setDiscord({
+                state: 'gateway_preflight_failed',
+                ready: false,
+                lastError: message,
+                lastErrorCode: response.status
+            });
+            console.error(message);
+            console.error('Discord gateway preflight response:', body.slice(0, 500));
+            process.exit(1);
+        }
+
+        const data = JSON.parse(body);
+        console.log(`Discord gateway reachable. Recommended shards: ${data.shards}; remaining sessions: ${data.session_start_limit?.remaining}`);
+        runtimeStatus.setDiscord({
+            state: 'gateway_reachable',
+            ready: false,
+            gatewayUrl: data.url,
+            recommendedShards: data.shards,
+            sessionStartRemaining: data.session_start_limit?.remaining,
+            lastError: null
+        });
+    } catch (error) {
+        const message = error?.name === 'AbortError'
+            ? 'Discord gateway preflight timed out after 15 seconds.'
+            : `Discord gateway preflight error: ${error?.message || String(error)}`;
+
+        runtimeStatus.setDiscord({
+            state: 'gateway_preflight_error',
+            ready: false,
+            lastError: message,
+            lastErrorName: error?.name,
+            lastErrorCode: error?.code
+        });
+        console.error(message);
+        process.exit(1);
+    } finally {
+        clearTimeout(timeout);
+    }
+}
+
 async function startBot() {
     if (!config.token) {
         runtimeStatus.setDiscord({
@@ -553,6 +615,8 @@ async function startBot() {
         console.error('Privileged Gateway Intents do not start the bot by themselves; the process must have a valid bot token.');
         process.exit(1);
     }
+
+    await preflightDiscordGateway();
 
     console.log('Starting bot login...');
     runtimeStatus.setDiscord({
