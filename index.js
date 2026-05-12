@@ -524,6 +524,7 @@ async function checkAndCleanOldPosts() {
     console.log('Old post cleanup finished.');
 }
 
+async function startBot() {
     if (!config.token) {
         console.error('Bot token is missing in config. Please set DISCORD_TOKEN environment variable.');
         process.exit(1);
@@ -1374,6 +1375,32 @@ Do not spam or beg for items. This creates a negative experience for others and 
 async function checkPilotTimers() {
     // Placeholder for timer logic referenced in handleClientReady
     console.log('Checking pilot timers...');
+    const state = configManager.getPilotState?.() || { timers: {} };
+    if (!state.timers) return;
+
+    const now = Date.now();
+    let updated = false;
+
+    for (const [channelId, timer] of Object.entries(state.timers)) {
+        if (timer.notified || now < timer.expiresAt) continue;
+
+        const channel = client.channels.cache.get(channelId);
+        if (channel) {
+            const embed = new EmbedBuilder()
+                .setTitle('⏰ Pilot Deadline Reached')
+                .setDescription(`The timer for this pilot has expired.\n<@${timer.creatorId}>, please review the channel.`)
+                .setColor(0xED4245)
+                .setTimestamp();
+
+            await channel.send({ embeds: [embed] }).catch(() => {});
+        }
+        timer.notified = true;
+        updated = true;
+    }
+
+    if (updated) {
+        configManager.setPilotState?.(state);
+    }
 }
 
 startBot();
