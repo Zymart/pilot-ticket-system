@@ -30,6 +30,89 @@ const {
     removeTicketByChannel
 } = require('./utils/ticketHelpers');
 
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
+const runningJobs = new Set();
+
+function getErrorMessage(error) {
+    return error?.stack || error?.message || String(error);
+}
+
+async function fetchJson(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+    const response = await fetch(url, {
+        ...options,
+        timeout: timeoutMs
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText} from ${url}`);
+    }
+
+    return response.json();
+}
+
+function startRecurringJob(name, job, intervalMs, options = {}) {
+    const { runImmediately = true, initialDelayMs = 0 } = options;
+    const run = async () => {
+        if (runningJobs.has(name)) {
+            console.warn(`Skipping ${name}; previous run is still active.`);
+            return;
+        }
+
+        runningJobs.add(name);
+        try {
+            await job();
+        } catch (error) {
+            console.error(`${name} failed:`, getErrorMessage(error));
+        } finally {
+            runningJobs.delete(name);
+        }
+    };
+
+    if (runImmediately) {
+        if (initialDelayMs > 0) {
+            const startupTimer = setTimeout(run, initialDelayMs);
+            if (typeof startupTimer.unref === 'function') {
+                startupTimer.unref();
+            }
+        } else {
+            void run();
+        }
+    }
+
+    const timer = setInterval(run, intervalMs);
+    if (typeof timer.unref === 'function') {
+        timer.unref();
+    }
+    return timer;
+}
+
+async function replyToInteractionError(interaction, content = '❌ Something went wrong while handling this interaction.') {
+    if (!interaction || typeof interaction.reply !== 'function') {
+        return;
+    }
+
+    const payload = { content, flags: MessageFlags.Ephemeral };
+
+    try {
+        if (interaction.deferred || interaction.replied) {
+            await interaction.editReply(payload);
+        } else {
+            await interaction.reply(payload);
+        }
+    } catch (replyError) {
+        console.error('Failed to send interaction error reply:', getErrorMessage(replyError));
+    }
+}
+
+process.on('unhandledRejection', error => {
+    console.error('Unhandled promise rejection:', getErrorMessage(error));
+});
+
+process.on('uncaughtException', error => {
+    console.error('Uncaught exception:', getErrorMessage(error));
+    setTimeout(() => process.exit(1), 1000);
+});
+
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
 console.log('Token length:', config.token?.length);
@@ -124,16 +207,13 @@ async function autoPostAnimeNews() {
 
     try {
         // Fetch New Episode Releases (Watch Feed)
-        const epRes = await fetch('https://api.jikan.moe/v4/watch/episodes?limit=5');
-        const epData = await epRes.json();
+        const epData = await fetchJson('https://api.jikan.moe/v4/watch/episodes?limit=5');
 
         // Fetch Upcoming Anime
-        const upcomingRes = await fetch('https://api.jikan.moe/v4/seasons/upcoming?limit=5');
-        const upcomingData = await upcomingRes.json();
+        const upcomingData = await fetchJson('https://api.jikan.moe/v4/seasons/upcoming?limit=5');
 
         // Fetch Recently Finished or Top Airing (Season data)
-        const seasonRes = await fetch('https://api.jikan.moe/v4/seasons/now?limit=10');
-        const seasonData = await seasonRes.json();
+        const seasonData = await fetchJson('https://api.jikan.moe/v4/seasons/now?limit=10');
 
         if (!epData.data || !upcomingData.data || !seasonData.data) return;
 
@@ -238,12 +318,10 @@ async function autoPostMangaNews() {
 
     try {
         // Fetch New Chapter Releases
-        const chRes = await fetch('https://api.mangadex.org/chapter?limit=3&order[readableAt]=desc&contentRating[]=safe&includes[]=manga&includes[]=cover_art&translatedLanguage[]=en');
-        const chData = await chRes.json();
+        const chData = await fetchJson('https://api.mangadex.org/chapter?limit=3&order[readableAt]=desc&contentRating[]=safe&includes[]=manga&includes[]=cover_art&translatedLanguage[]=en');
 
         // Fetch Recently Added Manga Titles (New/Upcoming)
-        const mgRes = await fetch('https://api.mangadex.org/manga?limit=2&order[createdAt]=desc&contentRating[]=safe&includes[]=cover_art');
-        const mgData = await mgRes.json();
+        const mgData = await fetchJson('https://api.mangadex.org/manga?limit=2&order[createdAt]=desc&contentRating[]=safe&includes[]=cover_art');
 
         if (!chData.data) return;
 
@@ -323,8 +401,7 @@ async function autoPostAnimeSuggestions() {
     if (!channel) return;
 
     try {
-        const response = await fetch('https://api.jikan.moe/v4/recommendations/anime');
-        const data = await response.json();
+        const data = await fetchJson('https://api.jikan.moe/v4/recommendations/anime');
 
         if (!data.data || data.data.length === 0) return;
 
@@ -350,8 +427,7 @@ async function autoPostAnimeSuggestions() {
                 .setFooter({ text: 'Daily Suggestions • Data by Jikan' });
 
             try {
-                const detailResponse = await fetch(`https://api.jikan.moe/v4/anime/${anime.mal_id}`);
-                const detailData = await detailResponse.json();
+                const detailData = await fetchJson(`https://api.jikan.moe/v4/anime/${anime.mal_id}`);
 
                 if (detailData.data) {
                     const detailedAnime = detailData.data;
@@ -429,7 +505,7 @@ async function autoPostAniListUpdates() {
             perPage: 5 // Fetch a few to pick from
         };
 
-        const response = await fetch('https://graphql.anilist.co', {
+        const data = await fetchJson('https://graphql.anilist.co', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -440,7 +516,6 @@ async function autoPostAniListUpdates() {
                 variables: variables
             })
         });
-        const data = await response.json();
 
         if (!data.data || !data.data.Page || !data.data.Page.media || data.data.Page.media.length === 0) {
             console.log('AniList: No media found or API error.');
@@ -523,7 +598,55 @@ async function checkAndCleanOldPosts() {
     console.log('Old post cleanup finished.');
 }
 
-client.once(Events.ClientReady, async () => {
+async function checkPilotTimers() {
+    const state = configManager.getPilotState();
+    const timers = state.timers || {};
+    const now = Date.now();
+    let changed = false;
+
+    for (const [channelId, timer] of Object.entries(timers)) {
+        const expiresAt = Number(timer?.expiresAt);
+
+        if (!Number.isFinite(expiresAt)) {
+            delete timers[channelId];
+            changed = true;
+            continue;
+        }
+
+        const channel = client.channels.cache.get(channelId) ||
+            await client.channels.fetch(channelId).catch(() => null);
+
+        if (!channel || typeof channel.send !== 'function') {
+            delete timers[channelId];
+            changed = true;
+            continue;
+        }
+
+        if (expiresAt <= now) {
+            await channel.send('Pilot timer deadline reached. Please update this pilot status.').catch(error => {
+                console.error(`Failed to send expired pilot timer notice for ${channelId}:`, getErrorMessage(error));
+            });
+            delete timers[channelId];
+            changed = true;
+            continue;
+        }
+
+        if (!timer.notified && expiresAt - now <= 60 * 60 * 1000) {
+            await channel.send(`Pilot deadline is less than 1 hour away: <t:${Math.floor(expiresAt / 1000)}:R>`).catch(error => {
+                console.error(`Failed to send pilot timer warning for ${channelId}:`, getErrorMessage(error));
+            });
+            timer.notified = true;
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        state.timers = timers;
+        configManager.setPilotState(state);
+    }
+}
+
+client.once(Events.ClientReady, () => {
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
 
@@ -532,37 +655,31 @@ client.once(Events.ClientReady, async () => {
     const guideChannel = client.channels.cache.get(guideChannelId);
     if (guideChannel) {
         console.log('Refreshing Post Guide...');
-        await sendPostGuide(guideChannel);
+        void sendPostGuide(guideChannel).catch(error => {
+            console.error('Post guide refresh failed:', getErrorMessage(error));
+        });
     }
 
-    // Start periodic old post cleanup
-    await checkAndCleanOldPosts(); // Run once on startup
-    setInterval(checkAndCleanOldPosts, 6 * 60 * 60 * 1000); // Run every 6 hours (adjust as needed)
-
-    // Start periodic Anime News updates - checking every minute for changes
-    await autoPostAnimeNews(); // Run once on startup
-    setInterval(autoPostAnimeNews, 60 * 1000); // Run every minute
-
-    // Start periodic Manga News updates - checking every minute for changes
-    await autoPostMangaNews(); // Run once on startup
-    setInterval(autoPostMangaNews, 60 * 1000); // Run every minute
-
-    // Start periodic Anime Suggestions - checking every 1 hour
-    await autoPostAnimeSuggestions(); // Run once on startup
-    setInterval(autoPostAnimeSuggestions, 1 * 60 * 60 * 1000); // 1 hour
-
-    // Start periodic AniList Updates - checking every 1 hour
-    await autoPostAniListUpdates(); // Run once on startup
-    setInterval(autoPostAniListUpdates, 1 * 60 * 60 * 1000); // 1 hour
-
-    // Check Pilot Timers every minute
-    await checkPilotTimers();
-    setInterval(checkPilotTimers, 60 * 1000);
+    startRecurringJob('old post cleanup', checkAndCleanOldPosts, 6 * 60 * 60 * 1000);
+    startRecurringJob('anime news auto post', autoPostAnimeNews, 60 * 1000, { initialDelayMs: 5000 });
+    startRecurringJob('manga news auto post', autoPostMangaNews, 60 * 1000, { initialDelayMs: 10000 });
+    startRecurringJob('anime suggestions auto post', autoPostAnimeSuggestions, 60 * 60 * 1000, { initialDelayMs: 15000 });
+    startRecurringJob('AniList auto post', autoPostAniListUpdates, 60 * 60 * 1000, { initialDelayMs: 20000 });
+    startRecurringJob('pilot timer check', checkPilotTimers, 60 * 1000, { initialDelayMs: 25000 });
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
 
 client.on(Events.Debug, info => {
+    if (process.env.DISCORD_DEBUG === 'true') {
+        console.log('Discord Debug:', info);
+        return;
+    }
+
+    if (/Heartbeat acknowledged|Preparing first heartbeat/i.test(info)) {
+        return;
+    }
+
     console.log('Discord Debug:', info);
 });
 
@@ -579,8 +696,21 @@ client.on(Events.ShardError, error => {
     console.error('WebSocket Error:', error.message);
 });
 
+client.on(Events.ShardDisconnect, (event, shardId) => {
+    console.warn(`Shard ${shardId} disconnected: ${event?.code || 'unknown code'} ${event?.reason || ''}`.trim());
+});
+
+client.on(Events.ShardReconnecting, shardId => {
+    console.warn(`Shard ${shardId} reconnecting...`);
+});
+
+client.on(Events.ShardResume, (shardId, replayedEvents) => {
+    console.log(`Shard ${shardId} resumed (${replayedEvents} replayed events).`);
+});
+
 client.on(Events.Invalidated, () => {
-    console.error('Session invalidated!');
+    console.error('Session invalidated. Exiting so the host can start a fresh Discord session.');
+    setTimeout(() => process.exit(1), 1000);
 });
 
 function buildCloseActionRow() {
@@ -678,6 +808,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
             if (!command) {
+                await replyToInteractionError(interaction, 'This command is no longer available. Please try again after the bot commands refresh.');
                 return;
             }
 
@@ -1338,6 +1469,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
     } catch (error) {
         console.error('Interaction handler error:', error);
+        await replyToInteractionError(interaction);
     }
 });
 

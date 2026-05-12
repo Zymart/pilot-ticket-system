@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
+const REQUEST_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -9,15 +10,15 @@ module.exports = {
     async execute(interaction) {
         try {
             // Fetch New Episode Releases
-            const epRes = await fetch('https://api.jikan.moe/v4/watch/episodes?limit=5');
+            const epRes = await fetch('https://api.jikan.moe/v4/watch/episodes?limit=5', { timeout: REQUEST_TIMEOUT_MS });
             const epData = await epRes.json();
 
             // Fetch Upcoming Anime
-            const upcomingRes = await fetch('https://api.jikan.moe/v4/seasons/upcoming?limit=5');
+            const upcomingRes = await fetch('https://api.jikan.moe/v4/seasons/upcoming?limit=5', { timeout: REQUEST_TIMEOUT_MS });
             const upcomingData = await upcomingRes.json();
 
             // Fetch Currently Airing
-            const seasonRes = await fetch('https://api.jikan.moe/v4/seasons/now?limit=10');
+            const seasonRes = await fetch('https://api.jikan.moe/v4/seasons/now?limit=10', { timeout: REQUEST_TIMEOUT_MS });
             const seasonData = await seasonRes.json();
 
             const headerEmbed = new EmbedBuilder()

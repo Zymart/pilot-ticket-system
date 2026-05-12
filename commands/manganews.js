@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
+const REQUEST_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,7 +9,7 @@ module.exports = {
 
     async execute(interaction) {
         try {
-            const response = await fetch('https://api.mangadex.org/chapter?limit=5&order[readableAt]=desc&contentRating[]=safe&includes[]=manga&includes[]=cover_art&translatedLanguage[]=en');
+            const response = await fetch('https://api.mangadex.org/chapter?limit=5&order[readableAt]=desc&contentRating[]=safe&includes[]=manga&includes[]=cover_art&translatedLanguage[]=en', { timeout: REQUEST_TIMEOUT_MS });
             const data = await response.json();
 
             if (!data.data || data.data.length === 0) {

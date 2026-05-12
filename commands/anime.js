@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
+const REQUEST_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -15,7 +16,7 @@ module.exports = {
         const query = interaction.options.getString('query');
 
         try {
-            const response = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=1`);
+            const response = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(query)}&limit=1`, { timeout: REQUEST_TIMEOUT_MS });
             const data = await response.json();
 
             if (!data.data || data.data.length === 0) {
