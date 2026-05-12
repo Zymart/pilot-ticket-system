@@ -1,9 +1,6 @@
 const dns = require('dns');
 
-if (typeof dns.setDefaultResultOrder === 'function') {
-    dns.setDefaultResultOrder('ipv4first');
-}
-
+// The dns.setDefaultResultOrder is handled in server.js, no need to duplicate here.
 const {
     Client,
     GatewayIntentBits,
@@ -36,6 +33,15 @@ const {
     isTicketChannel,
     removeTicketByChannel
 } = require('./utils/ticketHelpers');
+
+console.log('=== CONFIG CHECK ===');
+console.log('Token configured:', !!config.token);
+console.log('Client ID:', config.clientId);
+console.log('Guild ID:', config.guildId);
+if (config.tokenClientId && config.clientId && config.tokenClientId !== config.clientId) {
+    console.error('CONFIG WARNING: Token\'s internal client ID does not match CLIENT_ID environment variable.');
+}
+console.log('====================');
 
 const client = new Client({
     waitGuildTimeout: 15000,
