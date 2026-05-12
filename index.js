@@ -37,6 +37,7 @@ const {
     removeTicketByChannel
 } = require('./utils/ticketHelpers');
 
+console.log('STARTUP VERSION: render-probe-v2');
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
 console.log('Token length:', config.token?.length);
