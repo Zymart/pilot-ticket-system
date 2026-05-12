@@ -577,6 +577,27 @@ async function checkAndCleanOldPosts() {
     console.log('Old post cleanup finished.');
 }
 
+async function startBot() {
+    console.log('Attempting Discord API probe...');
+    const apiReachable = await probeDiscordApi();
+    if (!apiReachable) {
+        console.error('Discord API is unreachable. Cannot proceed with bot login.');
+        process.exit(1);
+    }
+    console.log('Discord API is reachable. Proceeding with bot login.');
+
+    if (!config.token) {
+        console.error('Bot token is missing in config. Please set DISCORD_TOKEN environment variable.');
+        process.exit(1);
+    }
+
+    console.log('Starting bot login...');
+    client.login(config.token).catch(err => {
+        console.error('Login failed:', err);
+        process.exit(1);
+    });
+}
+
 let readyWatchdog;
 let readyTasksStarted = false;
 
@@ -1420,7 +1441,4 @@ async function checkPilotTimers() {
     console.log('Checking pilot timers...');
 }
 
-client.login(config.token).catch(err => {
-    console.error('Login failed:', err);
-    process.exit(1);
-});
+startBot();
