@@ -56,7 +56,7 @@ console.log('DNS result order: ipv4first');
 console.log('====================');
 
 const client = new Client({
-    waitGuildTimeout: 1000,
+    waitGuildTimeout: 15000,
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
@@ -622,40 +622,37 @@ async function handleClientReady() {
     const guideChannel = client.channels.cache.get(guideChannelId);
     if (guideChannel) {
         console.log('Refreshing Post Guide...');
-        await sendPostGuide(guideChannel);
+        sendPostGuide(guideChannel).catch(err => console.error('Guide refresh failed:', err));
     }
 
     // Start periodic old post cleanup
-    await checkAndCleanOldPosts(); // Run once on startup
+    checkAndCleanOldPosts().catch(err => console.error('Cleanup failed:', err));
     setInterval(checkAndCleanOldPosts, 6 * 60 * 60 * 1000); // Run every 6 hours (adjust as needed)
 
     // Start periodic Anime News updates - checking every minute for changes
-    await autoPostAnimeNews(); // Run once on startup
+    autoPostAnimeNews().catch(err => console.error('Anime news failed:', err));
     setInterval(autoPostAnimeNews, 60 * 1000); // Run every minute
 
     // Start periodic Manga News updates - checking every minute for changes
-    await autoPostMangaNews(); // Run once on startup
+    autoPostMangaNews().catch(err => console.error('Manga news failed:', err));
     setInterval(autoPostMangaNews, 60 * 1000); // Run every minute
 
     // Start periodic Anime Suggestions - checking every 1 hour
-    await autoPostAnimeSuggestions(); // Run once on startup
+    autoPostAnimeSuggestions().catch(err => console.error('Suggestions failed:', err));
     setInterval(autoPostAnimeSuggestions, 1 * 60 * 60 * 1000); // 1 hour
 
     // Start periodic AniList Updates - checking every 1 hour
-    await autoPostAniListUpdates(); // Run once on startup
+    autoPostAniListUpdates().catch(err => console.error('AniList failed:', err));
     setInterval(autoPostAniListUpdates, 1 * 60 * 60 * 1000); // 1 hour
 
     // Check Pilot Timers every minute
-    await checkPilotTimers();
+    checkPilotTimers().catch(err => console.error('Timer check failed:', err));
     setInterval(checkPilotTimers, 60 * 1000);
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 }
 
 client.once(Events.ClientReady, handleClientReady);
-if (Events.ClientReady !== 'ready') {
-    client.once('ready', handleClientReady);
-}
 
 client.on(Events.Debug, info => {
     const safeInfo = String(info)
