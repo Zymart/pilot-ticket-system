@@ -41,7 +41,7 @@ module.exports = {
 
             await interaction.followUp({
                 content: `✅ **DM All Process Finished!**\n- Successfully sent: **${successCount}**\n- Failed: **${errorCount}** (likely DMs disabled)`,
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
         } catch (error) {
             console.error('DM All command failed:', error);

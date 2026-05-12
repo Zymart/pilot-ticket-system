@@ -2,7 +2,6 @@ const fetch = require('node-fetch');
 
 const ROOT = 'https://api.jsonbin.io/v3';
 const KEY = process.env.JSONBIN_MASTER_KEY;
-const REQUEST_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
 
 async function request(path, opts = {}) {
     if (!KEY) {
@@ -13,7 +12,6 @@ async function request(path, opts = {}) {
     try {
         const res = await fetch(`${ROOT}${path}`, {
             ...opts,
-            timeout: REQUEST_TIMEOUT_MS,
             headers: {
                 'X-Master-Key': KEY,
                 'Content-Type': 'application/json',

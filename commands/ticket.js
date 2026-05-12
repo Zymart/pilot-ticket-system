@@ -27,7 +27,7 @@ module.exports = {
         await interaction.reply({
             content: `<@${interaction.user.id}> Choose the channel where I should post the ticket panel.`,
             components: [row],
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
     }
 };

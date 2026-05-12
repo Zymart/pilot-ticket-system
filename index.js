@@ -30,30 +30,15 @@ const {
     removeTicketByChannel
 } = require('./utils/ticketHelpers');
 
-async function replyToInteractionError(interaction, content = '❌ Something went wrong while handling this interaction.') {
-    if (!interaction || typeof interaction.reply !== 'function') {
-        return;
-    }
-
-    try {
-        if (interaction.deferred || interaction.replied) {
-            await interaction.editReply({ content });
-        } else {
-            await interaction.reply({ content, ephemeral: true });
-        }
-    } catch (replyError) {
-        console.error('Failed to send interaction error reply:', replyError);
-    }
-}
-
-console.log('=== CONFIG CHECK ===');
-console.log('Token configured:', !!config.token);
+console.log('=== CONFIG DEBUG ===');
+console.log('Token exists:', !!config.token);
+console.log('Token length:', config.token?.length);
+console.log('Token starts with:', config.token?.substring(0, 10) + '...');
 console.log('Client ID:', config.clientId);
 console.log('Guild ID:', config.guildId);
 console.log('====================');
 
 const client = new Client({
-    waitGuildTimeout: 1000,
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
@@ -538,77 +523,7 @@ async function checkAndCleanOldPosts() {
     console.log('Old post cleanup finished.');
 }
 
-async function checkPilotTimers() {
-    const state = configManager.getPilotState();
-    const timers = state.timers || {};
-    const now = Date.now();
-    let changed = false;
-
-    for (const [channelId, timer] of Object.entries(timers)) {
-        const expiresAt = Number(timer?.expiresAt);
-
-        if (!Number.isFinite(expiresAt)) {
-            delete timers[channelId];
-            changed = true;
-            continue;
-        }
-
-        const channel = client.channels.cache.get(channelId) ||
-            await client.channels.fetch(channelId).catch(() => null);
-
-        if (!channel || typeof channel.send !== 'function') {
-            delete timers[channelId];
-            changed = true;
-            continue;
-        }
-
-        if (expiresAt <= now) {
-            await channel.send('Pilot timer deadline reached. Please update this pilot status.').catch(error => {
-                console.error(`Failed to send expired pilot timer notice for ${channelId}:`, error);
-            });
-            delete timers[channelId];
-            changed = true;
-            continue;
-        }
-
-        if (!timer.notified && expiresAt - now <= 60 * 60 * 1000) {
-            await channel.send(`Pilot deadline is less than 1 hour away: <t:${Math.floor(expiresAt / 1000)}:R>`).catch(error => {
-                console.error(`Failed to send pilot timer warning for ${channelId}:`, error);
-            });
-            timer.notified = true;
-            changed = true;
-        }
-    }
-
-    if (changed) {
-        state.timers = timers;
-        configManager.setPilotState(state);
-    }
-}
-
-async function runStartupTask(name, task) {
-    try {
-        await task();
-    } catch (error) {
-        console.error(`${name} failed during startup:`, error);
-    }
-}
-
-let readyWatchdog;
-let readyTasksStarted = false;
-
-async function handleClientReady() {
-    if (readyTasksStarted) {
-        return;
-    }
-
-    readyTasksStarted = true;
-
-    if (readyWatchdog) {
-        clearTimeout(readyWatchdog);
-        readyWatchdog = null;
-    }
-
+client.once(Events.ClientReady, async () => {
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
 
@@ -617,51 +532,38 @@ async function handleClientReady() {
     const guideChannel = client.channels.cache.get(guideChannelId);
     if (guideChannel) {
         console.log('Refreshing Post Guide...');
-        await runStartupTask('Post guide refresh', () => sendPostGuide(guideChannel));
+        await sendPostGuide(guideChannel);
     }
 
     // Start periodic old post cleanup
-    await runStartupTask('Old post cleanup', checkAndCleanOldPosts); // Run once on startup
-    setInterval(() => runStartupTask('Old post cleanup', checkAndCleanOldPosts), 6 * 60 * 60 * 1000); // Run every 6 hours (adjust as needed)
+    await checkAndCleanOldPosts(); // Run once on startup
+    setInterval(checkAndCleanOldPosts, 6 * 60 * 60 * 1000); // Run every 6 hours (adjust as needed)
 
     // Start periodic Anime News updates - checking every minute for changes
-    await runStartupTask('Anime news auto post', autoPostAnimeNews); // Run once on startup
-    setInterval(() => runStartupTask('Anime news auto post', autoPostAnimeNews), 60 * 1000); // Run every minute
+    await autoPostAnimeNews(); // Run once on startup
+    setInterval(autoPostAnimeNews, 60 * 1000); // Run every minute
 
     // Start periodic Manga News updates - checking every minute for changes
-    await runStartupTask('Manga news auto post', autoPostMangaNews); // Run once on startup
-    setInterval(() => runStartupTask('Manga news auto post', autoPostMangaNews), 60 * 1000); // Run every minute
+    await autoPostMangaNews(); // Run once on startup
+    setInterval(autoPostMangaNews, 60 * 1000); // Run every minute
 
     // Start periodic Anime Suggestions - checking every 1 hour
-    await runStartupTask('Anime suggestions auto post', autoPostAnimeSuggestions); // Run once on startup
-    setInterval(() => runStartupTask('Anime suggestions auto post', autoPostAnimeSuggestions), 1 * 60 * 60 * 1000); // 1 hour
+    await autoPostAnimeSuggestions(); // Run once on startup
+    setInterval(autoPostAnimeSuggestions, 1 * 60 * 60 * 1000); // 1 hour
 
     // Start periodic AniList Updates - checking every 1 hour
-    await runStartupTask('AniList auto post', autoPostAniListUpdates); // Run once on startup
-    setInterval(() => runStartupTask('AniList auto post', autoPostAniListUpdates), 1 * 60 * 60 * 1000); // 1 hour
+    await autoPostAniListUpdates(); // Run once on startup
+    setInterval(autoPostAniListUpdates, 1 * 60 * 60 * 1000); // 1 hour
 
     // Check Pilot Timers every minute
-    await runStartupTask('Pilot timer check', checkPilotTimers);
-    setInterval(() => runStartupTask('Pilot timer check', checkPilotTimers), 60 * 1000);
+    await checkPilotTimers();
+    setInterval(checkPilotTimers, 60 * 1000);
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
-}
-
-client.once(Events.ClientReady, handleClientReady);
-if (Events.ClientReady !== 'ready') {
-    client.once('ready', handleClientReady);
-}
+});
 
 client.on(Events.Debug, info => {
-    if (process.env.DISCORD_DEBUG !== 'true') {
-        return;
-    }
-
-    const safeInfo = String(info)
-        .replace(/Provided token: .+/i, 'Provided token: [hidden]')
-        .replace(/([A-Za-z0-9_-]{20,})\.([A-Za-z0-9_-]{6,})\.([A-Za-z0-9_-]{20,})/g, '[token hidden]');
-
-    console.log('Discord Debug:', safeInfo);
+    console.log('Discord Debug:', info);
 });
 
 client.on(Events.Warn, info => {
@@ -675,22 +577,6 @@ client.on(Events.Error, error => {
 
 client.on(Events.ShardError, error => {
     console.error('WebSocket Error:', error.message);
-});
-
-client.on(Events.ShardReady, (shardId, unavailableGuilds) => {
-    console.log(`Shard ${shardId} ready${unavailableGuilds?.size ? ` (${unavailableGuilds.size} unavailable guilds)` : ''}.`);
-});
-
-client.on(Events.ShardDisconnect, (event, shardId) => {
-    console.error(`Shard ${shardId} disconnected: code ${event?.code || 'unknown'} ${event?.reason || ''}`.trim());
-});
-
-client.on(Events.ShardReconnecting, shardId => {
-    console.warn(`Shard ${shardId} reconnecting...`);
-});
-
-client.on(Events.ShardResume, (shardId, replayedEvents) => {
-    console.log(`Shard ${shardId} resumed (${replayedEvents} replayed events).`);
 });
 
 client.on(Events.Invalidated, () => {
@@ -792,14 +678,13 @@ client.on(Events.InteractionCreate, async interaction => {
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
             if (!command) {
-                await replyToInteractionError(interaction, 'This command is not loaded on the bot. Please wait for commands to refresh and try again.');
                 return;
             }
 
             const shouldDeferReply = command.deferReply ?? true;
 
             if (shouldDeferReply) {
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             }
 
             try {
@@ -811,11 +696,11 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
             } catch (error) {
                 console.error(error);
-                const errorReply = { content: '❌ Error executing command.' };
+                const errorReply = { content: '❌ Error executing command.', flags: MessageFlags.Ephemeral };
                 if (interaction.deferred || interaction.replied) {
                     await interaction.editReply(errorReply).catch(() => {});
                 } else {
-                    await interaction.reply({ ...errorReply, ephemeral: true }).catch(() => {});
+                    await interaction.reply(errorReply).catch(() => {});
                 }
             }
 
@@ -858,7 +743,7 @@ client.on(Events.InteractionCreate, async interaction => {
             if (configManager.hasTicket(interaction.user.id)) {
                 await interaction.reply({
                     content: '❌ You already have an open ticket. Close it first.',
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
                 return;
             }
@@ -902,7 +787,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             const robloxUser = interaction.fields.getTextInputValue('roblox_username');
             const buying = interaction.fields.getTextInputValue('buying');
@@ -1077,7 +962,7 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
         }
 
         if (interaction.isModalSubmit() && interaction.customId === 'post_modal') {
-            await interaction.deferReply({ ephemeral: true }); // Defer the reply for the modal submission
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral }); // Defer the reply for the modal submission
 
             const productName = interaction.fields.getTextInputValue('product_name');
             const productDescription = interaction.fields.getTextInputValue('product_description');
@@ -1140,7 +1025,7 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
             if (productImage && !productImage.startsWith('http')) {
                 await interaction.followUp({
                     content: '⚠️ The image URL must start with `http` or `https` to be displayed.',
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 }).catch(() => {});
             }
 
@@ -1170,7 +1055,7 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
         }
 
         if (interaction.isButton() && interaction.customId.startsWith('contact_seller_')) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             const parts = interaction.customId.split('_');
             const sellerId = parts[2];
@@ -1288,7 +1173,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId === 'call_midman') {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             if (!isTicketChannel(interaction.channel)) {
                 return await interaction.editReply({
@@ -1335,7 +1220,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId.startsWith('close_')) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
                 removeTicketByChannel(configManager, interaction.channel.id);
@@ -1373,7 +1258,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         if (interaction.isButton() && interaction.customId === 'acknowledge_rules') {
             await interaction.reply({
                 content: '✅ Rules acknowledged. Thank you!',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             
             await interaction.message.delete().catch(() => {});
@@ -1381,7 +1266,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId === 'transcript_ticket') {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
                 const ticketEntry = getTicketEntryByChannel(configManager, interaction.channel.id);
@@ -1407,7 +1292,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId === 'delete_ticket') {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
                 const deletedCount = await deleteConnectedChannels(interaction.channel, configManager);
@@ -1429,7 +1314,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId.startsWith('copy_webhook_')) {
-            await interaction.deferReply({ ephemeral: true });
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
             try {
                 const webhooks = await interaction.channel.fetchWebhooks();
@@ -1453,7 +1338,6 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
     } catch (error) {
         console.error('Interaction handler error:', error);
-        await replyToInteractionError(interaction);
     }
 });
 
@@ -1533,22 +1417,21 @@ client.on(Events.ChannelDelete, async channel => {
 
 console.log('Starting bot login...');
 
-readyWatchdog = setTimeout(() => {
-    console.error('Discord did not become ready after 180 seconds. Restarting so Render can reconnect.');
-    console.error(`WebSocket status: ${client.ws.status}`);
-    console.error('If this repeats, check Gateway Intents in the Discord Developer Portal: Server Members Intent and Message Content Intent.');
-    process.exit(1);
-}, 180000);
+const loginTimeout = setTimeout(() => {
+    console.error('❌ Login timeout after 30 seconds');
+    console.error('Possible causes:');
+    console.error('1. Invalid token');
+    console.error('2. Discord API down');
+    console.error('3. IP banned/rate limited');
+    console.error('4. WebSocket connection blocked');
+}, 30000);
 
 client.login(config.token).then(() => {
+    clearTimeout(loginTimeout);
     console.log('✅ Login successful');
 }).catch(error => {
-    if (readyWatchdog) {
-        clearTimeout(readyWatchdog);
-        readyWatchdog = null;
-    }
+    clearTimeout(loginTimeout);
     console.error('❌ Login failed:', error.message);
     console.error('Error code:', error.code);
     console.error('Full error:', error);
-    process.exit(1);
 });

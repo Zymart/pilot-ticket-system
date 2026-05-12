@@ -12,7 +12,6 @@ class ConfigManager {
         this.mangaState = {};
         this.suggestionState = {};
         this.anilistState = {}; // New: Store state for AniList updates
-        this.pilotState = { timers: {} };
     }
 
     init() {
@@ -32,8 +31,6 @@ class ConfigManager {
             this.mangaState = d.mangaState || {};
             this.suggestionState = d.suggestionState || {};
             this.anilistState = d.anilistState || {}; // New: Load AniList state
-            this.pilotState = d.pilotState || { timers: {} };
-            if (!this.pilotState.timers) this.pilotState.timers = {};
         } catch (err) {
             console.error('Load failed:', err);
         }
@@ -48,7 +45,6 @@ class ConfigManager {
             mangaState: this.mangaState,
             suggestionState: this.suggestionState,
             anilistState: this.anilistState, // New: Save AniList state
-            pilotState: this.pilotState,
             savedAt: new Date().toISOString()
         };
         
@@ -115,20 +111,6 @@ class ConfigManager {
 
     setAniListState(state) {
         this.anilistState = state;
-        this.save();
-    }
-
-    getPilotState() {
-        if (!this.pilotState || typeof this.pilotState !== 'object') {
-            this.pilotState = { timers: {} };
-        }
-        if (!this.pilotState.timers) this.pilotState.timers = {};
-        return this.pilotState;
-    }
-
-    setPilotState(state) {
-        this.pilotState = state || { timers: {} };
-        if (!this.pilotState.timers) this.pilotState.timers = {};
         this.save();
     }
 }

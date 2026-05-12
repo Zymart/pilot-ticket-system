@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
-const REQUEST_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -10,15 +9,15 @@ module.exports = {
     async execute(interaction) {
         try {
             // Fetch New Episode Releases
-            const epRes = await fetch('https://api.jikan.moe/v4/watch/episodes?limit=5', { timeout: REQUEST_TIMEOUT_MS });
+            const epRes = await fetch('https://api.jikan.moe/v4/watch/episodes?limit=5');
             const epData = await epRes.json();
 
             // Fetch Upcoming Anime
-            const upcomingRes = await fetch('https://api.jikan.moe/v4/seasons/upcoming?limit=5', { timeout: REQUEST_TIMEOUT_MS });
+            const upcomingRes = await fetch('https://api.jikan.moe/v4/seasons/upcoming?limit=5');
             const upcomingData = await upcomingRes.json();
 
             // Fetch Currently Airing
-            const seasonRes = await fetch('https://api.jikan.moe/v4/seasons/now?limit=10', { timeout: REQUEST_TIMEOUT_MS });
+            const seasonRes = await fetch('https://api.jikan.moe/v4/seasons/now?limit=10');
             const seasonData = await seasonRes.json();
 
             const headerEmbed = new EmbedBuilder()
@@ -38,7 +37,7 @@ module.exports = {
                         .setURL(item.entry.url)
                         .setColor(0x57F287);
                     
-                    await interaction.followUp({ embeds: [epEmbed], ephemeral: true });
+                    await interaction.followUp({ embeds: [epEmbed], flags: 64 });
                 }
             }
 
@@ -52,7 +51,7 @@ module.exports = {
                         .setURL(a.url)
                         .setColor(0xFEE75C);
 
-                    await interaction.followUp({ embeds: [upEmbed], ephemeral: true });
+                    await interaction.followUp({ embeds: [upEmbed], flags: 64 });
                 }
             }
 
@@ -67,7 +66,7 @@ module.exports = {
                             .setURL(a.url)
                             .setColor(0xED4245);
                         
-                        await interaction.followUp({ embeds: [finEmbed], ephemeral: true });
+                        await interaction.followUp({ embeds: [finEmbed], flags: 64 });
                     }
                 } else {
                     for (const a of seasonData.data.slice(0, 2)) {
@@ -78,7 +77,7 @@ module.exports = {
                             .setURL(a.url)
                             .setColor(0x5865F2);
 
-                        await interaction.followUp({ embeds: [trendEmbed], ephemeral: true });
+                        await interaction.followUp({ embeds: [trendEmbed], flags: 64 });
                     }
                 }
             }
