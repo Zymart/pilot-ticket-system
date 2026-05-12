@@ -37,24 +37,6 @@ const {
     removeTicketByChannel
 } = require('./utils/ticketHelpers');
 
-console.log('STARTUP VERSION: render-probe-v2');
-console.log('=== CONFIG DEBUG ===');
-console.log('Token exists:', !!config.token);
-console.log('Token length:', config.token?.length);
-console.log('Token env key:', config.tokenEnvKey || 'missing');
-console.log('Available token env keys:', config.availableTokenEnvKeys.length ? config.availableTokenEnvKeys.join(', ') : 'none');
-console.log('Token client ID:', config.tokenClientId || 'unknown');
-console.log('Client ID:', config.clientId);
-console.log('Client ID env key:', config.clientIdEnvKey || 'missing');
-console.log('Guild ID:', config.guildId);
-console.log('Guild ID env key:', config.guildIdEnvKey || 'missing');
-console.log('JSONBin key env key:', config.jsonbinMasterKeyEnvKey || 'missing');
-if (config.tokenClientId && config.clientId && config.tokenClientId !== config.clientId) {
-    console.error('CONFIG WARNING: token bot ID does not match CLIENT_ID. Check Render environment variables.');
-}
-console.log('DNS result order: ipv4first');
-console.log('====================');
-
 const client = new Client({
     waitGuildTimeout: 15000,
     intents: [
@@ -81,7 +63,6 @@ const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('
 const commands = [];
 
 for (const file of commandFiles) {
-    if (file === 'setup.js') continue;
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
     client.commands.set(command.data.name, command);
@@ -105,40 +86,6 @@ async function deployCommands() {
         console.log('Commands deployed successfully');
     } catch (error) {
         console.error('Deploy failed:', error.message);
-    }
-}
-
-async function probeDiscordApi() {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    const startedAt = Date.now();
-
-    try {
-        const response = await fetch('https://discord.com/api/v10/gateway', {
-            signal: controller.signal,
-            headers: {
-                'User-Agent': 'pilot-ticket-system/1.0'
-            }
-        });
-        const elapsedMs = Date.now() - startedAt;
-
-        if (!response.ok) {
-            const body = await response.text().catch(() => '');
-            console.error(`Discord API probe failed: HTTP ${response.status} after ${elapsedMs}ms`);
-            if (body) {
-                console.error(`Discord API probe body: ${body.slice(0, 300)}`);
-            }
-            return false;
-        }
-
-        console.log(`Discord API probe succeeded in ${elapsedMs}ms`);
-        return true;
-    } catch (error) {
-        const elapsedMs = Date.now() - startedAt;
-        console.error(`Discord API probe failed after ${elapsedMs}ms: ${error.name} ${error.message}`);
-        return false;
-    } finally {
-        clearTimeout(timeout);
     }
 }
 
@@ -576,15 +523,6 @@ async function checkAndCleanOldPosts() {
     }
     console.log('Old post cleanup finished.');
 }
-
-async function startBot() {
-    console.log('Attempting Discord API probe...');
-    const apiReachable = await probeDiscordApi();
-    if (!apiReachable) {
-        console.error('Discord API is unreachable. Cannot proceed with bot login.');
-        process.exit(1);
-    }
-    console.log('Discord API is reachable. Proceeding with bot login.');
 
     if (!config.token) {
         console.error('Bot token is missing in config. Please set DISCORD_TOKEN environment variable.');
