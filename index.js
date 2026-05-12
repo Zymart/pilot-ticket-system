@@ -39,6 +39,7 @@ console.log('Guild ID:', config.guildId);
 console.log('====================');
 
 const client = new Client({
+    waitGuildTimeout: 1000,
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
@@ -523,7 +524,21 @@ async function checkAndCleanOldPosts() {
     console.log('Old post cleanup finished.');
 }
 
-client.once(Events.ClientReady, async () => {
+let readyWatchdog;
+let readyTasksStarted = false;
+
+async function handleClientReady() {
+    if (readyTasksStarted) {
+        return;
+    }
+
+    readyTasksStarted = true;
+
+    if (readyWatchdog) {
+        clearTimeout(readyWatchdog);
+        readyWatchdog = null;
+    }
+
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
 
@@ -560,7 +575,12 @@ client.once(Events.ClientReady, async () => {
     setInterval(checkPilotTimers, 60 * 1000);
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
-});
+}
+
+client.once(Events.ClientReady, handleClientReady);
+if (Events.ClientReady !== 'ready') {
+    client.once('ready', handleClientReady);
+}
 
 client.on(Events.Debug, info => {
     console.log('Discord Debug:', info);
@@ -577,6 +597,18 @@ client.on(Events.Error, error => {
 
 client.on(Events.ShardError, error => {
     console.error('WebSocket Error:', error.message);
+});
+
+client.on(Events.ShardDisconnect, (event, shardId) => {
+    console.error(`Shard ${shardId} disconnected: code ${event?.code || 'unknown'} ${event?.reason || ''}`.trim());
+});
+
+client.on(Events.ShardReconnecting, shardId => {
+    console.warn(`Shard ${shardId} reconnecting...`);
+});
+
+client.on(Events.ShardResume, (shardId, replayedEvents) => {
+    console.log(`Shard ${shardId} resumed (${replayedEvents} replayed events).`);
 });
 
 client.on(Events.Invalidated, () => {
@@ -1417,21 +1449,23 @@ client.on(Events.ChannelDelete, async channel => {
 
 console.log('Starting bot login...');
 
-const loginTimeout = setTimeout(() => {
-    console.error('❌ Login timeout after 30 seconds');
-    console.error('Possible causes:');
-    console.error('1. Invalid token');
-    console.error('2. Discord API down');
-    console.error('3. IP banned/rate limited');
-    console.error('4. WebSocket connection blocked');
-}, 30000);
+readyWatchdog = setTimeout(() => {
+    console.error('Discord did not become ready after 180 seconds. Restarting so Render can reconnect.');
+    console.error(`WebSocket status: ${client.ws.status}`);
+    console.error('If this repeats, check the bot token and enabled Gateway Intents in the Discord Developer Portal.');
+    process.exit(1);
+}, 180000);
 
 client.login(config.token).then(() => {
-    clearTimeout(loginTimeout);
     console.log('✅ Login successful');
 }).catch(error => {
-    clearTimeout(loginTimeout);
+    if (readyWatchdog) {
+        clearTimeout(readyWatchdog);
+        readyWatchdog = null;
+    }
+
     console.error('❌ Login failed:', error.message);
     console.error('Error code:', error.code);
     console.error('Full error:', error);
+    process.exit(1);
 });
