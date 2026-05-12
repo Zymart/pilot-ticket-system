@@ -8,7 +8,7 @@ const {
     REST,
     Routes,
     Events,
-    Status,
+    ActivityType,
     ChannelType,
     PermissionFlagsBits,
     ModalBuilder,
@@ -49,6 +49,7 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildPresences,
         GatewayIntentBits.MessageContent
     ],
     rest: {
@@ -532,7 +533,8 @@ async function checkAndCleanOldPosts() {
 
 async function startBot() {
     if (!config.token) {
-        console.error('Bot token is missing in config. Please set DISCORD_TOKEN environment variable.');
+        console.error(`Bot token is missing. Set DISCORD_TOKEN in Render or in ${path.join(__dirname, '.env')}.`);
+        console.error('Privileged Gateway Intents do not start the bot by themselves; the process must have a valid bot token.');
         process.exit(1);
     }
 
@@ -559,6 +561,16 @@ async function handleClientReady() {
     }
 
     console.log(`✅ Bot ready: ${client.user.tag}`);
+    await client.user.setPresence({
+        status: 'online',
+        activities: [
+            {
+                name: 'pilot tickets',
+                type: ActivityType.Watching
+            }
+        ]
+    });
+
     configManager.init();
     deployCommands();
 

@@ -1,4 +1,8 @@
-require('dotenv').config();
+const path = require('path');
+const dotenv = require('dotenv');
+
+dotenv.config();
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 function cleanEnvValue(value) {
     if (typeof value !== 'string') {
