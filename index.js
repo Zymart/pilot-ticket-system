@@ -657,6 +657,22 @@ client.on(Events.ShardError, error => {
     console.error('WebSocket Error:', error.message);
 });
 
+client.on(Events.ShardReady, (shardId, unavailableGuilds) => {
+    console.log(`Shard ${shardId} ready${unavailableGuilds?.size ? ` (${unavailableGuilds.size} unavailable guilds)` : ''}.`);
+});
+
+client.on(Events.ShardDisconnect, (event, shardId) => {
+    console.error(`Shard ${shardId} disconnected: code ${event?.code || 'unknown'} ${event?.reason || ''}`.trim());
+});
+
+client.on(Events.ShardReconnecting, shardId => {
+    console.warn(`Shard ${shardId} reconnecting...`);
+});
+
+client.on(Events.ShardResume, (shardId, replayedEvents) => {
+    console.log(`Shard ${shardId} resumed (${replayedEvents} replayed events).`);
+});
+
 client.on(Events.Invalidated, () => {
     console.error('Session invalidated!');
 });
