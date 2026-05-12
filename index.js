@@ -32,6 +32,8 @@ const {
 
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
 const runningJobs = new Set();
+let isClientReady = false;
+let readyWatchdog = null;
 
 function getErrorMessage(error) {
     return error?.stack || error?.message || String(error);
@@ -113,10 +115,8 @@ process.on('uncaughtException', error => {
     setTimeout(() => process.exit(1), 1000);
 });
 
-console.log('=== CONFIG DEBUG ===');
-console.log('Token exists:', !!config.token);
-console.log('Token length:', config.token?.length);
-console.log('Token starts with:', config.token?.substring(0, 10) + '...');
+console.log('=== CONFIG CHECK ===');
+console.log('Token configured:', !!config.token);
 console.log('Client ID:', config.clientId);
 console.log('Guild ID:', config.guildId);
 console.log('====================');
@@ -647,6 +647,12 @@ async function checkPilotTimers() {
 }
 
 client.once(Events.ClientReady, () => {
+    isClientReady = true;
+    if (readyWatchdog) {
+        clearTimeout(readyWatchdog);
+        readyWatchdog = null;
+    }
+
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
 
@@ -671,16 +677,15 @@ client.once(Events.ClientReady, () => {
 });
 
 client.on(Events.Debug, info => {
-    if (process.env.DISCORD_DEBUG === 'true') {
-        console.log('Discord Debug:', info);
+    if (process.env.DISCORD_DEBUG !== 'true') {
         return;
     }
 
-    if (/Heartbeat acknowledged|Preparing first heartbeat/i.test(info)) {
-        return;
-    }
+    const safeInfo = String(info)
+        .replace(/Provided token: .+/i, 'Provided token: [hidden]')
+        .replace(/([A-Za-z0-9_-]{20,})\.([A-Za-z0-9_-]{6,})\.([A-Za-z0-9_-]{20,})/g, '[token hidden]');
 
-    console.log('Discord Debug:', info);
+    console.log('Discord Debug:', safeInfo);
 });
 
 client.on(Events.Warn, info => {
@@ -1549,21 +1554,22 @@ client.on(Events.ChannelDelete, async channel => {
 
 console.log('Starting bot login...');
 
-const loginTimeout = setTimeout(() => {
-    console.error('❌ Login timeout after 30 seconds');
-    console.error('Possible causes:');
-    console.error('1. Invalid token');
-    console.error('2. Discord API down');
-    console.error('3. IP banned/rate limited');
-    console.error('4. WebSocket connection blocked');
-}, 30000);
+readyWatchdog = setTimeout(() => {
+    if (!isClientReady) {
+        console.warn('Discord login is still waiting for the ready event after 90 seconds.');
+        console.warn('The gateway may still be reconnecting; the process will keep running unless Discord rejects the login.');
+    }
+}, 90000);
 
 client.login(config.token).then(() => {
-    clearTimeout(loginTimeout);
-    console.log('✅ Login successful');
+    console.log('Discord login accepted. Waiting for ready event...');
 }).catch(error => {
-    clearTimeout(loginTimeout);
+    if (readyWatchdog) {
+        clearTimeout(readyWatchdog);
+        readyWatchdog = null;
+    }
     console.error('❌ Login failed:', error.message);
     console.error('Error code:', error.code);
     console.error('Full error:', error);
+    process.exit(1);
 });

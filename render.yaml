@@ -25,4 +25,4 @@ services:
     region: oregon
     schedule: "*/10 * * * *"
     buildCommand: echo "No build needed"
-    startCommand: curl -s https://$RENDER_EXTERNAL_HOSTNAME/health || echo "Ping failed"
+    startCommand: curl -fsS https://pilot-ticket-system.onrender.com/health || echo "Ping failed"
