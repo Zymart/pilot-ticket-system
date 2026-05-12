@@ -28,4 +28,4 @@ services:
     startCommand: curl -fsS "$BOT_HEALTH_URL" || echo "Ping failed"
     envVars:
       - key: BOT_HEALTH_URL
-        value: https://ticket-bot.onrender.com/health
+        value: https://pilot-ticket-system.onrender.com/health
