@@ -59,6 +59,19 @@ runtimeStatus.setConfig({
     guildIdEnvKey: config.guildIdEnvKey
 });
 
+async function discordRestFetch(url, init) {
+    const response = await fetch(url, init);
+
+    if (typeof response.arrayBuffer !== 'function') {
+        response.arrayBuffer = async () => {
+            const buffer = await response.buffer();
+            return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+        };
+    }
+
+    return response;
+}
+
 const client = new Client({
     waitGuildTimeout: 15000,
     intents: [
@@ -69,7 +82,8 @@ const client = new Client({
     ],
     rest: {
         timeout: 60000,
-        retries: 3
+        retries: 3,
+        makeRequest: discordRestFetch
     }
 });
 
@@ -93,7 +107,7 @@ async function deployCommands() {
         return;
     }
 
-    const rest = new REST({ version: '10' }).setToken(config.token);
+    const rest = new REST({ version: '10', makeRequest: discordRestFetch }).setToken(config.token);
 
     try {
         console.log('Deploying commands...');
