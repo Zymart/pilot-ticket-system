@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const configManager = require('./utils/configManager');
+const runtimeStatus = require('./utils/runtimeStatus');
 const {
     buildTranscriptAttachment,
     createTranscript,
@@ -38,10 +39,23 @@ console.log('=== CONFIG CHECK ===');
 console.log('Token configured:', !!config.token);
 console.log('Client ID:', config.clientId);
 console.log('Guild ID:', config.guildId);
+if (config.tokenHadBotPrefix) {
+    console.log('Token prefix: stripped leading "Bot " from token env value.');
+}
 if (config.tokenClientId && config.clientId && config.tokenClientId !== config.clientId) {
     console.error('CONFIG WARNING: Token\'s internal client ID does not match CLIENT_ID environment variable.');
 }
 console.log('====================');
+runtimeStatus.setConfig({
+    tokenConfigured: !!config.token,
+    tokenEnvKey: config.tokenEnvKey,
+    tokenHadBotPrefix: config.tokenHadBotPrefix,
+    availableTokenEnvKeys: config.availableTokenEnvKeys,
+    clientIdConfigured: !!config.clientId,
+    clientIdEnvKey: config.clientIdEnvKey,
+    guildIdConfigured: !!config.guildId,
+    guildIdEnvKey: config.guildIdEnvKey
+});
 
 const client = new Client({
     waitGuildTimeout: 15000,
@@ -533,13 +547,38 @@ async function checkAndCleanOldPosts() {
 
 async function startBot() {
     if (!config.token) {
+        runtimeStatus.setDiscord({
+            state: 'config_error',
+            ready: false,
+            lastError: 'DISCORD_TOKEN is missing'
+        });
         console.error(`Bot token is missing. Set DISCORD_TOKEN in Render or in ${path.join(__dirname, '.env')}.`);
         console.error('Privileged Gateway Intents do not start the bot by themselves; the process must have a valid bot token.');
         process.exit(1);
     }
 
     console.log('Starting bot login...');
+    runtimeStatus.setDiscord({
+        state: 'logging_in',
+        ready: false,
+        lastError: null
+    });
+    readyWatchdog = setTimeout(() => {
+        runtimeStatus.setDiscord({
+            state: 'waiting_for_ready',
+            ready: false,
+            lastError: 'Discord login started, but ClientReady has not fired yet.'
+        });
+    }, 45000);
+
     client.login(config.token).catch(err => {
+        runtimeStatus.setDiscord({
+            state: 'login_failed',
+            ready: false,
+            lastError: err.message,
+            lastErrorName: err.name,
+            lastErrorCode: err.code
+        });
         console.error('Login failed:', err);
         process.exit(1);
     });
@@ -561,6 +600,14 @@ async function handleClientReady() {
     }
 
     console.log(`✅ Bot ready: ${client.user.tag}`);
+    runtimeStatus.setDiscord({
+        state: 'ready',
+        ready: true,
+        userId: client.user.id,
+        userTag: client.user.tag,
+        guildCount: client.guilds.cache.size,
+        lastError: null
+    });
     await client.user.setPresence({
         status: 'online',
         activities: [
@@ -624,27 +671,60 @@ client.on(Events.Warn, info => {
 });
 
 client.on(Events.Error, error => {
+    runtimeStatus.setDiscord({
+        lastError: error.message,
+        lastErrorName: error.name,
+        lastErrorCode: error.code
+    });
     console.error('Discord Client Error:', error.message);
     console.error('Error stack:', error.stack);
 });
 
 client.on(Events.ShardError, error => {
+    runtimeStatus.setDiscord({
+        state: 'shard_error',
+        ready: false,
+        lastError: error.message
+    });
     console.error('WebSocket Error:', error.message);
 });
 
 client.on(Events.ShardDisconnect, (event, shardId) => {
+    runtimeStatus.setDiscord({
+        state: 'disconnected',
+        ready: false,
+        shardId,
+        disconnectCode: event?.code,
+        disconnectReason: event?.reason || null
+    });
     console.error(`Shard ${shardId} disconnected: code ${event?.code || 'unknown'} ${event?.reason || ''}`.trim());
 });
 
 client.on(Events.ShardReconnecting, shardId => {
+    runtimeStatus.setDiscord({
+        state: 'reconnecting',
+        ready: false,
+        shardId
+    });
     console.warn(`Shard ${shardId} reconnecting...`);
 });
 
 client.on(Events.ShardResume, (shardId, replayedEvents) => {
+    runtimeStatus.setDiscord({
+        state: 'ready',
+        ready: true,
+        shardId,
+        replayedEvents
+    });
     console.log(`Shard ${shardId} resumed (${replayedEvents} replayed events).`);
 });
 
 client.on(Events.Invalidated, () => {
+    runtimeStatus.setDiscord({
+        state: 'invalidated',
+        ready: false,
+        lastError: 'Discord session invalidated'
+    });
     console.error('Session invalidated!');
 });
 

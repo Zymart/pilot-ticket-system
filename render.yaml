@@ -25,4 +25,7 @@ services:
     region: oregon
     schedule: "*/10 * * * *"
     buildCommand: echo "No build needed"
-    startCommand: curl -s https://$RENDER_EXTERNAL_HOSTNAME/health || echo "Ping failed"
+    startCommand: curl -fsS "$BOT_HEALTH_URL" || echo "Ping failed"
+    envVars:
+      - key: BOT_HEALTH_URL
+        value: https://ticket-bot.onrender.com/health

@@ -13,6 +13,19 @@ function cleanEnvValue(value) {
     return trimmed || null;
 }
 
+function cleanTokenValue(value) {
+    const cleaned = cleanEnvValue(value);
+    if (!cleaned) {
+        return null;
+    }
+
+    return cleaned.replace(/^Bot\s+/i, '').trim() || null;
+}
+
+function hasBotTokenPrefix(value) {
+    return /^Bot\s+/i.test(cleanEnvValue(value) || '');
+}
+
 function findEnv(names, validator = value => !!value) {
     for (const name of names) {
         const value = cleanEnvValue(process.env[name]);
@@ -74,7 +87,13 @@ const jsonbinKeyEnvNames = [
 ];
 
 const clientIdEnv = findEnv(clientIdEnvNames, isSnowflake);
-const tokenCandidates = findAllEnv(tokenEnvNames);
+const tokenCandidates = tokenEnvNames
+    .map(name => ({
+        key: name,
+        value: cleanTokenValue(process.env[name]),
+        hadBotPrefix: hasBotTokenPrefix(process.env[name])
+    }))
+    .filter(entry => entry.value);
 const matchingToken = clientIdEnv.value
     ? tokenCandidates.find(candidate => getTokenClientId(candidate.value) === clientIdEnv.value)
     : null;
@@ -86,6 +105,7 @@ const jsonbinKeyEnv = findEnv(jsonbinKeyEnvNames);
 module.exports = {
     token: tokenEnv.value,
     tokenEnvKey: tokenEnv.key,
+    tokenHadBotPrefix: !!tokenEnv.hadBotPrefix,
     tokenClientId,
     availableTokenEnvKeys: tokenCandidates.map(candidate => candidate.key),
     clientId: clientIdEnv.value || tokenClientId,
