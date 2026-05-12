@@ -1,9 +1,95 @@
 require('dotenv').config();
 
+function cleanEnvValue(value) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const trimmed = value.trim().replace(/^['"]|['"]$/g, '');
+    return trimmed || null;
+}
+
+function findEnv(names, validator = value => !!value) {
+    for (const name of names) {
+        const value = cleanEnvValue(process.env[name]);
+        if (value && validator(value)) {
+            return { key: name, value };
+        }
+    }
+
+    return { key: null, value: null };
+}
+
+function findAllEnv(names, validator = value => !!value) {
+    return names
+        .map(name => ({ key: name, value: cleanEnvValue(process.env[name]) }))
+        .filter(entry => entry.value && validator(entry.value));
+}
+
+function isSnowflake(value) {
+    return /^\d{17,20}$/.test(value);
+}
+
+function getTokenClientId(token) {
+    try {
+        const tokenBody = token.replace(/^Bot\s+/i, '');
+        const encodedId = tokenBody.split('.')[0];
+        const normalized = encodedId.replace(/-/g, '+').replace(/_/g, '/');
+        const decoded = Buffer.from(normalized, 'base64').toString('utf8');
+        return isSnowflake(decoded) ? decoded : null;
+    } catch {
+        return null;
+    }
+}
+
+const tokenEnvNames = [
+    'DISCORD_TOKEN',
+    'DISCORD_BOT_TOKEN',
+    'BOT_TOKEN',
+    'TOKEN',
+    'CLIENT_TOKEN'
+];
+const clientIdEnvNames = [
+    'CLIENT_ID',
+    'DISCORD_CLIENT_ID',
+    'APPLICATION_ID',
+    'APP_ID',
+    'BOT_CLIENT_ID'
+];
+const guildIdEnvNames = [
+    'GUILD_ID',
+    'DISCORD_GUILD_ID',
+    'SERVER_ID',
+    'DISCORD_SERVER_ID'
+];
+const jsonbinKeyEnvNames = [
+    'JSONBIN_MASTER_KEY',
+    'JSONBIN_API_KEY',
+    'JSONBIN_KEY',
+    'X_MASTER_KEY'
+];
+
+const clientIdEnv = findEnv(clientIdEnvNames, isSnowflake);
+const tokenCandidates = findAllEnv(tokenEnvNames);
+const matchingToken = clientIdEnv.value
+    ? tokenCandidates.find(candidate => getTokenClientId(candidate.value) === clientIdEnv.value)
+    : null;
+const tokenEnv = matchingToken || tokenCandidates[0] || { key: null, value: null };
+const tokenClientId = tokenEnv.value ? getTokenClientId(tokenEnv.value) : null;
+const guildIdEnv = findEnv(guildIdEnvNames, isSnowflake);
+const jsonbinKeyEnv = findEnv(jsonbinKeyEnvNames);
+
 module.exports = {
-    token: process.env.DISCORD_TOKEN,
-    clientId: process.env.CLIENT_ID,
-    guildId: process.env.GUILD_ID,
+    token: tokenEnv.value,
+    tokenEnvKey: tokenEnv.key,
+    tokenClientId,
+    availableTokenEnvKeys: tokenCandidates.map(candidate => candidate.key),
+    clientId: clientIdEnv.value || tokenClientId,
+    clientIdEnvKey: clientIdEnv.value ? clientIdEnv.key : (tokenClientId ? 'decoded from token' : null),
+    guildId: guildIdEnv.value,
+    guildIdEnvKey: guildIdEnv.key,
+    jsonbinMasterKey: jsonbinKeyEnv.value,
+    jsonbinMasterKeyEnvKey: jsonbinKeyEnv.key,
     port: process.env.PORT || 3000,
     system: {
         ticketCategoryId: '1381276042475339776',

@@ -33,9 +33,17 @@ const {
 console.log('=== CONFIG DEBUG ===');
 console.log('Token exists:', !!config.token);
 console.log('Token length:', config.token?.length);
-console.log('Token starts with:', config.token?.substring(0, 10) + '...');
+console.log('Token env key:', config.tokenEnvKey || 'missing');
+console.log('Available token env keys:', config.availableTokenEnvKeys.length ? config.availableTokenEnvKeys.join(', ') : 'none');
+console.log('Token client ID:', config.tokenClientId || 'unknown');
 console.log('Client ID:', config.clientId);
+console.log('Client ID env key:', config.clientIdEnvKey || 'missing');
 console.log('Guild ID:', config.guildId);
+console.log('Guild ID env key:', config.guildIdEnvKey || 'missing');
+console.log('JSONBin key env key:', config.jsonbinMasterKeyEnvKey || 'missing');
+if (config.tokenClientId && config.clientId && config.tokenClientId !== config.clientId) {
+    console.error('CONFIG WARNING: token bot ID does not match CLIENT_ID. Check Render environment variables.');
+}
 console.log('====================');
 
 const client = new Client({

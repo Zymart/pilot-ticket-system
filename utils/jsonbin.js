@@ -1,11 +1,12 @@
 const fetch = require('node-fetch');
+const config = require('../config');
 
 const ROOT = 'https://api.jsonbin.io/v3';
-const KEY = process.env.JSONBIN_MASTER_KEY;
+const KEY = config.jsonbinMasterKey;
 
 async function request(path, opts = {}) {
     if (!KEY) {
-        console.error('No JSONBIN_MASTER_KEY!');
+        console.error('No JSONBin key configured. Checked JSONBIN_MASTER_KEY, JSONBIN_API_KEY, JSONBIN_KEY, and X_MASTER_KEY.');
         return null;
     }
     
