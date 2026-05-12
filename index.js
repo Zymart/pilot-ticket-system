@@ -1404,140 +1404,23 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId.startsWith('copy_webhook_')) {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-            try {
-                const webhooks = await interaction.channel.fetchWebhooks();
-                const webhookId = interaction.customId.replace('copy_webhook_', '');
-                const webhook = webhooks.find(candidate => candidate.id === webhookId);
-
-                if (!webhook) {
-                    await interaction.editReply({ content: '❌ Webhook not found.' });
-                    return;
-                }
-
-                const reply = await interaction.editReply({
-                    content: `📋 **Webhook URL**\n\n**Mobile (Tap to copy):**\n\`${webhook.url}\`\n\n**PC:**\n\`\`\`${webhook.url}\`\`\``
-                });
-
-                autoDeleteMessage(reply, 60000);
-            } catch (error) {
-                console.error('Copy webhook failed:', error);
-                await interaction.editReply({ content: '❌ Failed to retrieve webhook URL.' });
-            }
+            const webhookId = interaction.customId.replace('copy_webhook_', '');
+            await interaction.reply({
+                content: `Webhook ID: \`${webhookId}\`. Discord does not allow direct clipboard access, but you can find the URL in the channel settings or the initial setup message.`,
+                flags: MessageFlags.Ephemeral
+            });
         }
-    } catch (error) {
-        console.error('Interaction handler error:', error);
+    } catch (err) {
+        console.error('Interaction handler error:', err);
     }
 });
 
-client.on(Events.MessageCreate, async message => {
-    if (message.author.bot || !message.guild) {
-        return;
-    }
-
-    // Sticky Message Logic for Guide Channel
-    if (message.channel.id === config.system.guideChannelId) {
-        // Delete user message to keep channel read-only
-        await message.delete().catch(() => {});
-        
-        // Re-send guide to keep it at the bottom (sticky)
-        await sendPostGuide(message.channel);
-        return;
-    }
-
-    const draft = client.ticketPanelDrafts.get(message.author.id);
-    if (!draft) {
-        return;
-    }
-
-    if (draft.guildId !== message.guild.id || draft.sourceChannelId !== message.channel.id) {
-        return;
-    }
-
-    client.ticketPanelDrafts.delete(message.author.id);
-
-    if (draft.expiresAt < Date.now()) {
-        const expiredReply = await message.channel.send('Ticket panel setup expired. Use /ticket again.');
-        autoDeleteMessage(expiredReply, 120000);
-        return;
-    }
-
-    const targetChannel = message.guild.channels.cache.get(draft.targetChannelId);
-    if (!targetChannel || targetChannel.type !== ChannelType.GuildText) {
-        const missingChannelReply = await message.channel.send('I could not find the selected channel. Use /ticket again.');
-        autoDeleteMessage(missingChannelReply, 120000);
-        return;
-    }
-
-    try {
-        await targetChannel.send({
-            content: '@everyone',
-            embeds: [buildTicketPanelEmbedFromMessage(message)],
-            components: [buildTicketPanelActionRow()]
-        });
-        
-        await message.delete().catch(() => {});
-        
-        if (draft.setupMessageId) {
-            const setupMsg = await message.channel.messages.fetch(draft.setupMessageId).catch(() => null);
-            if (setupMsg) await setupMsg.delete().catch(() => {});
-        }
-    } catch (error) {
-        console.error('Ticket panel post failed:', error);
-        const failureReply = await message.channel.send('I could not post the ticket panel there. Check my permissions and use /ticket again.');
-        autoDeleteMessage(failureReply, 120000);
-    }
-});
-
-client.on(Events.ChannelDelete, async channel => {
-    if (!isTicketChannel(channel)) {
-        return;
-    }
-
-    const ticketEntry = getTicketEntryByChannel(configManager, channel.id);
-    if (!ticketEntry) {
-        return;
-    }
-
-    const [userId] = ticketEntry;
-    configManager.closeTicket(userId);
-    console.log(`Cleaned up ticket for user ${userId}`);
-});
-
-async function startBot() {
-    console.log('Checking Discord API connectivity...');
-
-    if (!await probeDiscordApi()) {
-        console.error('Discord API is not reachable from this Render instance. Restarting.');
-        process.exit(1);
-        return;
-    }
-
-    console.log('Starting bot login...');
-
-    readyWatchdog = setTimeout(() => {
-        const wsStatus = client.ws.status;
-        console.error('Discord did not become ready after 180 seconds. Restarting so Render can reconnect.');
-        console.error(`WebSocket status: ${Status[wsStatus] || wsStatus} (${wsStatus})`);
-        console.error('If this repeats, check the bot token and enabled Gateway Intents in the Discord Developer Portal.');
-        process.exit(1);
-    }, 180000);
-
-    try {
-        await client.login(config.token);
-        console.log('✅ Login successful');
-    } catch (error) {
-        if (readyWatchdog) {
-            clearTimeout(readyWatchdog);
-            readyWatchdog = null;
-        }
-
-        console.error('❌ Login failed:', error.message);
-        console.error('Error code:', error.code);
-        console.error('Full error:', error);
-        process.exit(1);
-    }
+async function checkPilotTimers() {
+    // Placeholder for timer logic referenced in handleClientReady
+    console.log('Checking pilot timers...');
 }
 
-startBot();
+client.login(config.token).catch(err => {
+    console.error('Login failed:', err);
+    process.exit(1);
+});
