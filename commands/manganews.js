@@ -41,7 +41,7 @@ module.exports = {
                     embed.setImage(`https://uploads.mangadex.org/covers/${mangaId}/${fileName}`);
                 }
                 
-                await interaction.followUp({ embeds: [embed], flags: 64 });
+                await interaction.followUp({ embeds: [embed], ephemeral: true });
             }
 
         } catch (error) {

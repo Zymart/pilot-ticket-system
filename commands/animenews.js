@@ -38,7 +38,7 @@ module.exports = {
                         .setURL(item.entry.url)
                         .setColor(0x57F287);
                     
-                    await interaction.followUp({ embeds: [epEmbed], flags: 64 });
+                    await interaction.followUp({ embeds: [epEmbed], ephemeral: true });
                 }
             }
 
@@ -52,7 +52,7 @@ module.exports = {
                         .setURL(a.url)
                         .setColor(0xFEE75C);
 
-                    await interaction.followUp({ embeds: [upEmbed], flags: 64 });
+                    await interaction.followUp({ embeds: [upEmbed], ephemeral: true });
                 }
             }
 
@@ -67,7 +67,7 @@ module.exports = {
                             .setURL(a.url)
                             .setColor(0xED4245);
                         
-                        await interaction.followUp({ embeds: [finEmbed], flags: 64 });
+                        await interaction.followUp({ embeds: [finEmbed], ephemeral: true });
                     }
                 } else {
                     for (const a of seasonData.data.slice(0, 2)) {
@@ -78,7 +78,7 @@ module.exports = {
                             .setURL(a.url)
                             .setColor(0x5865F2);
 
-                        await interaction.followUp({ embeds: [trendEmbed], flags: 64 });
+                        await interaction.followUp({ embeds: [trendEmbed], ephemeral: true });
                     }
                 }
             }

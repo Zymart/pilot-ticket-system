@@ -30,90 +30,21 @@ const {
     removeTicketByChannel
 } = require('./utils/ticketHelpers');
 
-const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15000);
-const runningJobs = new Set();
-let isClientReady = false;
-let readyWatchdog = null;
-
-function getErrorMessage(error) {
-    return error?.stack || error?.message || String(error);
-}
-
-async function fetchJson(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
-    const response = await fetch(url, {
-        ...options,
-        timeout: timeoutMs
-    });
-
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText} from ${url}`);
-    }
-
-    return response.json();
-}
-
-function startRecurringJob(name, job, intervalMs, options = {}) {
-    const { runImmediately = true, initialDelayMs = 0 } = options;
-    const run = async () => {
-        if (runningJobs.has(name)) {
-            console.warn(`Skipping ${name}; previous run is still active.`);
-            return;
-        }
-
-        runningJobs.add(name);
-        try {
-            await job();
-        } catch (error) {
-            console.error(`${name} failed:`, getErrorMessage(error));
-        } finally {
-            runningJobs.delete(name);
-        }
-    };
-
-    if (runImmediately) {
-        if (initialDelayMs > 0) {
-            const startupTimer = setTimeout(run, initialDelayMs);
-            if (typeof startupTimer.unref === 'function') {
-                startupTimer.unref();
-            }
-        } else {
-            void run();
-        }
-    }
-
-    const timer = setInterval(run, intervalMs);
-    if (typeof timer.unref === 'function') {
-        timer.unref();
-    }
-    return timer;
-}
-
 async function replyToInteractionError(interaction, content = '❌ Something went wrong while handling this interaction.') {
     if (!interaction || typeof interaction.reply !== 'function') {
         return;
     }
 
-    const payload = { content, flags: MessageFlags.Ephemeral };
-
     try {
         if (interaction.deferred || interaction.replied) {
-            await interaction.editReply(payload);
+            await interaction.editReply({ content });
         } else {
-            await interaction.reply(payload);
+            await interaction.reply({ content, ephemeral: true });
         }
     } catch (replyError) {
-        console.error('Failed to send interaction error reply:', getErrorMessage(replyError));
+        console.error('Failed to send interaction error reply:', replyError);
     }
 }
-
-process.on('unhandledRejection', error => {
-    console.error('Unhandled promise rejection:', getErrorMessage(error));
-});
-
-process.on('uncaughtException', error => {
-    console.error('Uncaught exception:', getErrorMessage(error));
-    setTimeout(() => process.exit(1), 1000);
-});
 
 console.log('=== CONFIG CHECK ===');
 console.log('Token configured:', !!config.token);
@@ -207,13 +138,16 @@ async function autoPostAnimeNews() {
 
     try {
         // Fetch New Episode Releases (Watch Feed)
-        const epData = await fetchJson('https://api.jikan.moe/v4/watch/episodes?limit=5');
+        const epRes = await fetch('https://api.jikan.moe/v4/watch/episodes?limit=5');
+        const epData = await epRes.json();
 
         // Fetch Upcoming Anime
-        const upcomingData = await fetchJson('https://api.jikan.moe/v4/seasons/upcoming?limit=5');
+        const upcomingRes = await fetch('https://api.jikan.moe/v4/seasons/upcoming?limit=5');
+        const upcomingData = await upcomingRes.json();
 
         // Fetch Recently Finished or Top Airing (Season data)
-        const seasonData = await fetchJson('https://api.jikan.moe/v4/seasons/now?limit=10');
+        const seasonRes = await fetch('https://api.jikan.moe/v4/seasons/now?limit=10');
+        const seasonData = await seasonRes.json();
 
         if (!epData.data || !upcomingData.data || !seasonData.data) return;
 
@@ -318,10 +252,12 @@ async function autoPostMangaNews() {
 
     try {
         // Fetch New Chapter Releases
-        const chData = await fetchJson('https://api.mangadex.org/chapter?limit=3&order[readableAt]=desc&contentRating[]=safe&includes[]=manga&includes[]=cover_art&translatedLanguage[]=en');
+        const chRes = await fetch('https://api.mangadex.org/chapter?limit=3&order[readableAt]=desc&contentRating[]=safe&includes[]=manga&includes[]=cover_art&translatedLanguage[]=en');
+        const chData = await chRes.json();
 
         // Fetch Recently Added Manga Titles (New/Upcoming)
-        const mgData = await fetchJson('https://api.mangadex.org/manga?limit=2&order[createdAt]=desc&contentRating[]=safe&includes[]=cover_art');
+        const mgRes = await fetch('https://api.mangadex.org/manga?limit=2&order[createdAt]=desc&contentRating[]=safe&includes[]=cover_art');
+        const mgData = await mgRes.json();
 
         if (!chData.data) return;
 
@@ -401,7 +337,8 @@ async function autoPostAnimeSuggestions() {
     if (!channel) return;
 
     try {
-        const data = await fetchJson('https://api.jikan.moe/v4/recommendations/anime');
+        const response = await fetch('https://api.jikan.moe/v4/recommendations/anime');
+        const data = await response.json();
 
         if (!data.data || data.data.length === 0) return;
 
@@ -427,7 +364,8 @@ async function autoPostAnimeSuggestions() {
                 .setFooter({ text: 'Daily Suggestions • Data by Jikan' });
 
             try {
-                const detailData = await fetchJson(`https://api.jikan.moe/v4/anime/${anime.mal_id}`);
+                const detailResponse = await fetch(`https://api.jikan.moe/v4/anime/${anime.mal_id}`);
+                const detailData = await detailResponse.json();
 
                 if (detailData.data) {
                     const detailedAnime = detailData.data;
@@ -505,7 +443,7 @@ async function autoPostAniListUpdates() {
             perPage: 5 // Fetch a few to pick from
         };
 
-        const data = await fetchJson('https://graphql.anilist.co', {
+        const response = await fetch('https://graphql.anilist.co', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -516,6 +454,7 @@ async function autoPostAniListUpdates() {
                 variables: variables
             })
         });
+        const data = await response.json();
 
         if (!data.data || !data.data.Page || !data.data.Page.media || data.data.Page.media.length === 0) {
             console.log('AniList: No media found or API error.');
@@ -624,7 +563,7 @@ async function checkPilotTimers() {
 
         if (expiresAt <= now) {
             await channel.send('Pilot timer deadline reached. Please update this pilot status.').catch(error => {
-                console.error(`Failed to send expired pilot timer notice for ${channelId}:`, getErrorMessage(error));
+                console.error(`Failed to send expired pilot timer notice for ${channelId}:`, error);
             });
             delete timers[channelId];
             changed = true;
@@ -633,7 +572,7 @@ async function checkPilotTimers() {
 
         if (!timer.notified && expiresAt - now <= 60 * 60 * 1000) {
             await channel.send(`Pilot deadline is less than 1 hour away: <t:${Math.floor(expiresAt / 1000)}:R>`).catch(error => {
-                console.error(`Failed to send pilot timer warning for ${channelId}:`, getErrorMessage(error));
+                console.error(`Failed to send pilot timer warning for ${channelId}:`, error);
             });
             timer.notified = true;
             changed = true;
@@ -646,13 +585,15 @@ async function checkPilotTimers() {
     }
 }
 
-client.once(Events.ClientReady, () => {
-    isClientReady = true;
-    if (readyWatchdog) {
-        clearTimeout(readyWatchdog);
-        readyWatchdog = null;
+async function runStartupTask(name, task) {
+    try {
+        await task();
+    } catch (error) {
+        console.error(`${name} failed during startup:`, error);
     }
+}
 
+client.once(Events.ClientReady, async () => {
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
 
@@ -661,17 +602,32 @@ client.once(Events.ClientReady, () => {
     const guideChannel = client.channels.cache.get(guideChannelId);
     if (guideChannel) {
         console.log('Refreshing Post Guide...');
-        void sendPostGuide(guideChannel).catch(error => {
-            console.error('Post guide refresh failed:', getErrorMessage(error));
-        });
+        await runStartupTask('Post guide refresh', () => sendPostGuide(guideChannel));
     }
 
-    startRecurringJob('old post cleanup', checkAndCleanOldPosts, 6 * 60 * 60 * 1000);
-    startRecurringJob('anime news auto post', autoPostAnimeNews, 60 * 1000, { initialDelayMs: 5000 });
-    startRecurringJob('manga news auto post', autoPostMangaNews, 60 * 1000, { initialDelayMs: 10000 });
-    startRecurringJob('anime suggestions auto post', autoPostAnimeSuggestions, 60 * 60 * 1000, { initialDelayMs: 15000 });
-    startRecurringJob('AniList auto post', autoPostAniListUpdates, 60 * 60 * 1000, { initialDelayMs: 20000 });
-    startRecurringJob('pilot timer check', checkPilotTimers, 60 * 1000, { initialDelayMs: 25000 });
+    // Start periodic old post cleanup
+    await runStartupTask('Old post cleanup', checkAndCleanOldPosts); // Run once on startup
+    setInterval(() => runStartupTask('Old post cleanup', checkAndCleanOldPosts), 6 * 60 * 60 * 1000); // Run every 6 hours (adjust as needed)
+
+    // Start periodic Anime News updates - checking every minute for changes
+    await runStartupTask('Anime news auto post', autoPostAnimeNews); // Run once on startup
+    setInterval(() => runStartupTask('Anime news auto post', autoPostAnimeNews), 60 * 1000); // Run every minute
+
+    // Start periodic Manga News updates - checking every minute for changes
+    await runStartupTask('Manga news auto post', autoPostMangaNews); // Run once on startup
+    setInterval(() => runStartupTask('Manga news auto post', autoPostMangaNews), 60 * 1000); // Run every minute
+
+    // Start periodic Anime Suggestions - checking every 1 hour
+    await runStartupTask('Anime suggestions auto post', autoPostAnimeSuggestions); // Run once on startup
+    setInterval(() => runStartupTask('Anime suggestions auto post', autoPostAnimeSuggestions), 1 * 60 * 60 * 1000); // 1 hour
+
+    // Start periodic AniList Updates - checking every 1 hour
+    await runStartupTask('AniList auto post', autoPostAniListUpdates); // Run once on startup
+    setInterval(() => runStartupTask('AniList auto post', autoPostAniListUpdates), 1 * 60 * 60 * 1000); // 1 hour
+
+    // Check Pilot Timers every minute
+    await runStartupTask('Pilot timer check', checkPilotTimers);
+    setInterval(() => runStartupTask('Pilot timer check', checkPilotTimers), 60 * 1000);
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
 });
@@ -701,21 +657,8 @@ client.on(Events.ShardError, error => {
     console.error('WebSocket Error:', error.message);
 });
 
-client.on(Events.ShardDisconnect, (event, shardId) => {
-    console.warn(`Shard ${shardId} disconnected: ${event?.code || 'unknown code'} ${event?.reason || ''}`.trim());
-});
-
-client.on(Events.ShardReconnecting, shardId => {
-    console.warn(`Shard ${shardId} reconnecting...`);
-});
-
-client.on(Events.ShardResume, (shardId, replayedEvents) => {
-    console.log(`Shard ${shardId} resumed (${replayedEvents} replayed events).`);
-});
-
 client.on(Events.Invalidated, () => {
-    console.error('Session invalidated. Exiting so the host can start a fresh Discord session.');
-    setTimeout(() => process.exit(1), 1000);
+    console.error('Session invalidated!');
 });
 
 function buildCloseActionRow() {
@@ -813,14 +756,14 @@ client.on(Events.InteractionCreate, async interaction => {
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
             if (!command) {
-                await replyToInteractionError(interaction, 'This command is no longer available. Please try again after the bot commands refresh.');
+                await replyToInteractionError(interaction, 'This command is not loaded on the bot. Please wait for commands to refresh and try again.');
                 return;
             }
 
             const shouldDeferReply = command.deferReply ?? true;
 
             if (shouldDeferReply) {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                await interaction.deferReply({ ephemeral: true });
             }
 
             try {
@@ -832,11 +775,11 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
             } catch (error) {
                 console.error(error);
-                const errorReply = { content: '❌ Error executing command.', flags: MessageFlags.Ephemeral };
+                const errorReply = { content: '❌ Error executing command.' };
                 if (interaction.deferred || interaction.replied) {
                     await interaction.editReply(errorReply).catch(() => {});
                 } else {
-                    await interaction.reply(errorReply).catch(() => {});
+                    await interaction.reply({ ...errorReply, ephemeral: true }).catch(() => {});
                 }
             }
 
@@ -879,7 +822,7 @@ client.on(Events.InteractionCreate, async interaction => {
             if (configManager.hasTicket(interaction.user.id)) {
                 await interaction.reply({
                     content: '❌ You already have an open ticket. Close it first.',
-                    flags: MessageFlags.Ephemeral
+                    ephemeral: true
                 });
                 return;
             }
@@ -923,7 +866,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         if (interaction.isModalSubmit() && interaction.customId === 'ticket_modal') {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply({ ephemeral: true });
 
             const robloxUser = interaction.fields.getTextInputValue('roblox_username');
             const buying = interaction.fields.getTextInputValue('buying');
@@ -1098,7 +1041,7 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
         }
 
         if (interaction.isModalSubmit() && interaction.customId === 'post_modal') {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral }); // Defer the reply for the modal submission
+            await interaction.deferReply({ ephemeral: true }); // Defer the reply for the modal submission
 
             const productName = interaction.fields.getTextInputValue('product_name');
             const productDescription = interaction.fields.getTextInputValue('product_description');
@@ -1161,7 +1104,7 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
             if (productImage && !productImage.startsWith('http')) {
                 await interaction.followUp({
                     content: '⚠️ The image URL must start with `http` or `https` to be displayed.',
-                    flags: MessageFlags.Ephemeral
+                    ephemeral: true
                 }).catch(() => {});
             }
 
@@ -1191,7 +1134,7 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
         }
 
         if (interaction.isButton() && interaction.customId.startsWith('contact_seller_')) {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply({ ephemeral: true });
 
             const parts = interaction.customId.split('_');
             const sellerId = parts[2];
@@ -1309,7 +1252,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId === 'call_midman') {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply({ ephemeral: true });
 
             if (!isTicketChannel(interaction.channel)) {
                 return await interaction.editReply({
@@ -1356,7 +1299,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId.startsWith('close_')) {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply({ ephemeral: true });
 
             try {
                 removeTicketByChannel(configManager, interaction.channel.id);
@@ -1394,7 +1337,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         if (interaction.isButton() && interaction.customId === 'acknowledge_rules') {
             await interaction.reply({
                 content: '✅ Rules acknowledged. Thank you!',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             
             await interaction.message.delete().catch(() => {});
@@ -1402,7 +1345,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId === 'transcript_ticket') {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply({ ephemeral: true });
 
             try {
                 const ticketEntry = getTicketEntryByChannel(configManager, interaction.channel.id);
@@ -1428,7 +1371,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId === 'delete_ticket') {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply({ ephemeral: true });
 
             try {
                 const deletedCount = await deleteConnectedChannels(interaction.channel, configManager);
@@ -1450,7 +1393,7 @@ Do not spam or beg for items. This creates a negative experience for others and 
         }
 
         if (interaction.isButton() && interaction.customId.startsWith('copy_webhook_')) {
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            await interaction.deferReply({ ephemeral: true });
 
             try {
                 const webhooks = await interaction.channel.fetchWebhooks();
@@ -1554,22 +1497,17 @@ client.on(Events.ChannelDelete, async channel => {
 
 console.log('Starting bot login...');
 
-readyWatchdog = setTimeout(() => {
-    if (!isClientReady) {
-        console.warn('Discord login is still waiting for the ready event after 90 seconds.');
-        console.warn('The gateway may still be reconnecting; the process will keep running unless Discord rejects the login.');
-    }
-}, 90000);
+const loginTimeout = setTimeout(() => {
+    console.warn('Discord login is still waiting for the ready event after 120 seconds.');
+    console.warn('If this keeps happening, check the bot token and enabled Gateway Intents in the Discord Developer Portal.');
+}, 120000);
 
 client.login(config.token).then(() => {
-    console.log('Discord login accepted. Waiting for ready event...');
+    clearTimeout(loginTimeout);
+    console.log('✅ Login successful');
 }).catch(error => {
-    if (readyWatchdog) {
-        clearTimeout(readyWatchdog);
-        readyWatchdog = null;
-    }
+    clearTimeout(loginTimeout);
     console.error('❌ Login failed:', error.message);
     console.error('Error code:', error.code);
     console.error('Full error:', error);
-    process.exit(1);
 });
