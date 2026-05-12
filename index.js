@@ -93,6 +93,12 @@ client.ticketPanelDrafts = new Map();
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 const commands = [];
+const DISCORD_GATEWAY_RETRY_MS = 15 * 60 * 1000;
+const DISCORD_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
@@ -586,7 +592,7 @@ async function preflightDiscordGateway() {
             });
             console.error(message);
             console.error('Discord gateway preflight response:', body.slice(0, 500));
-            process.exit(1);
+            return false;
         }
 
         const data = JSON.parse(body);
@@ -599,6 +605,7 @@ async function preflightDiscordGateway() {
             sessionStartRemaining: data.session_start_limit?.remaining,
             lastError: null
         });
+        return true;
     } catch (error) {
         const message = error?.name === 'AbortError'
             ? 'Discord gateway preflight timed out after 15 seconds.'
@@ -612,7 +619,7 @@ async function preflightDiscordGateway() {
             lastErrorCode: error?.code
         });
         console.error(message);
-        process.exit(1);
+        return false;
     } finally {
         clearTimeout(timeout);
     }
@@ -630,7 +637,11 @@ async function startBot() {
         process.exit(1);
     }
 
-    await preflightDiscordGateway();
+    while (!(await preflightDiscordGateway())) {
+        const minutes = Math.round(DISCORD_GATEWAY_RETRY_MS / 60000);
+        console.error(`Discord is blocking or rate-limiting this Render instance. Waiting ${minutes} minutes before retrying gateway login.`);
+        await delay(DISCORD_GATEWAY_RETRY_MS);
+    }
 
     console.log('Starting bot login...');
     runtimeStatus.setDiscord({
@@ -654,7 +665,7 @@ async function startBot() {
         });
         console.error(message);
         process.exit(1);
-    }, 120000);
+    }, DISCORD_LOGIN_TIMEOUT_MS);
 
     client.login(config.token).catch(err => {
         clearLoginWatchdogs();
