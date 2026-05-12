@@ -1,3 +1,9 @@
+const dns = require('dns');
+
+if (typeof dns.setDefaultResultOrder === 'function') {
+    dns.setDefaultResultOrder('ipv4first');
+}
+
 const {
     Client,
     GatewayIntentBits,
@@ -5,6 +11,7 @@ const {
     REST,
     Routes,
     Events,
+    Status,
     ChannelType,
     PermissionFlagsBits,
     ModalBuilder,
@@ -44,6 +51,7 @@ console.log('JSONBin key env key:', config.jsonbinMasterKeyEnvKey || 'missing');
 if (config.tokenClientId && config.clientId && config.tokenClientId !== config.clientId) {
     console.error('CONFIG WARNING: token bot ID does not match CLIENT_ID. Check Render environment variables.');
 }
+console.log('DNS result order: ipv4first');
 console.log('====================');
 
 const client = new Client({
@@ -80,21 +88,57 @@ for (const file of commandFiles) {
     console.log(`Loaded command: ${command.data.name}`);
 }
 
-if (process.env.NODE_ENV === 'production') {
+async function deployCommands() {
+    if (process.env.NODE_ENV !== 'production') {
+        return;
+    }
+
     const rest = new REST({ version: '10' }).setToken(config.token);
 
-    (async () => {
-        try {
-            console.log('Deploying commands...');
-            await rest.put(
-                Routes.applicationGuildCommands(config.clientId, config.guildId),
-                { body: commands }
-            );
-            console.log('Commands deployed successfully');
-        } catch (error) {
-            console.error('Deploy failed:', error.message);
+    try {
+        console.log('Deploying commands...');
+        await rest.put(
+            Routes.applicationGuildCommands(config.clientId, config.guildId),
+            { body: commands }
+        );
+        console.log('Commands deployed successfully');
+    } catch (error) {
+        console.error('Deploy failed:', error.message);
+    }
+}
+
+async function probeDiscordApi() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const startedAt = Date.now();
+
+    try {
+        const response = await fetch('https://discord.com/api/v10/gateway', {
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'pilot-ticket-system/1.0'
+            }
+        });
+        const elapsedMs = Date.now() - startedAt;
+
+        if (!response.ok) {
+            const body = await response.text().catch(() => '');
+            console.error(`Discord API probe failed: HTTP ${response.status} after ${elapsedMs}ms`);
+            if (body) {
+                console.error(`Discord API probe body: ${body.slice(0, 300)}`);
+            }
+            return false;
         }
-    })();
+
+        console.log(`Discord API probe succeeded in ${elapsedMs}ms`);
+        return true;
+    } catch (error) {
+        const elapsedMs = Date.now() - startedAt;
+        console.error(`Discord API probe failed after ${elapsedMs}ms: ${error.name} ${error.message}`);
+        return false;
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 async function sendPostGuide(channel) {
@@ -549,6 +593,7 @@ async function handleClientReady() {
 
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
+    deployCommands();
 
     // Initialize Guide Channel
     const guideChannelId = config.system.guideChannelId;
@@ -591,7 +636,11 @@ if (Events.ClientReady !== 'ready') {
 }
 
 client.on(Events.Debug, info => {
-    console.log('Discord Debug:', info);
+    const safeInfo = String(info)
+        .replace(/Provided token: .+/i, 'Provided token: [hidden]')
+        .replace(/([A-Za-z0-9_-]{20,})\.([A-Za-z0-9_-]{6,})\.([A-Za-z0-9_-]{20,})/g, '[token hidden]');
+
+    console.log('Discord Debug:', safeInfo);
 });
 
 client.on(Events.Warn, info => {
@@ -1455,25 +1504,39 @@ client.on(Events.ChannelDelete, async channel => {
     console.log(`Cleaned up ticket for user ${userId}`);
 });
 
-console.log('Starting bot login...');
+async function startBot() {
+    console.log('Checking Discord API connectivity...');
 
-readyWatchdog = setTimeout(() => {
-    console.error('Discord did not become ready after 180 seconds. Restarting so Render can reconnect.');
-    console.error(`WebSocket status: ${client.ws.status}`);
-    console.error('If this repeats, check the bot token and enabled Gateway Intents in the Discord Developer Portal.');
-    process.exit(1);
-}, 180000);
-
-client.login(config.token).then(() => {
-    console.log('✅ Login successful');
-}).catch(error => {
-    if (readyWatchdog) {
-        clearTimeout(readyWatchdog);
-        readyWatchdog = null;
+    if (!await probeDiscordApi()) {
+        console.error('Discord API is not reachable from this Render instance. Restarting.');
+        process.exit(1);
+        return;
     }
 
-    console.error('❌ Login failed:', error.message);
-    console.error('Error code:', error.code);
-    console.error('Full error:', error);
-    process.exit(1);
-});
+    console.log('Starting bot login...');
+
+    readyWatchdog = setTimeout(() => {
+        const wsStatus = client.ws.status;
+        console.error('Discord did not become ready after 180 seconds. Restarting so Render can reconnect.');
+        console.error(`WebSocket status: ${Status[wsStatus] || wsStatus} (${wsStatus})`);
+        console.error('If this repeats, check the bot token and enabled Gateway Intents in the Discord Developer Portal.');
+        process.exit(1);
+    }, 180000);
+
+    try {
+        await client.login(config.token);
+        console.log('✅ Login successful');
+    } catch (error) {
+        if (readyWatchdog) {
+            clearTimeout(readyWatchdog);
+            readyWatchdog = null;
+        }
+
+        console.error('❌ Login failed:', error.message);
+        console.error('Error code:', error.code);
+        console.error('Full error:', error);
+        process.exit(1);
+    }
+}
+
+startBot();

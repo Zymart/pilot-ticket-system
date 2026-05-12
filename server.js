@@ -1,5 +1,10 @@
+const dns = require('dns');
 const express = require('express');
 const config = require('./config');
+
+if (typeof dns.setDefaultResultOrder === 'function') {
+    dns.setDefaultResultOrder('ipv4first');
+}
 
 const app = express();
 
