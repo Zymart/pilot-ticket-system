@@ -53,6 +53,7 @@ console.log('Guild ID:', config.guildId);
 console.log('====================');
 
 const client = new Client({
+    waitGuildTimeout: 1000,
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
@@ -593,7 +594,21 @@ async function runStartupTask(name, task) {
     }
 }
 
-client.once(Events.ClientReady, async () => {
+let readyWatchdog;
+let readyTasksStarted = false;
+
+async function handleClientReady() {
+    if (readyTasksStarted) {
+        return;
+    }
+
+    readyTasksStarted = true;
+
+    if (readyWatchdog) {
+        clearTimeout(readyWatchdog);
+        readyWatchdog = null;
+    }
+
     console.log(`✅ Bot ready: ${client.user.tag}`);
     configManager.init();
 
@@ -630,7 +645,12 @@ client.once(Events.ClientReady, async () => {
     setInterval(() => runStartupTask('Pilot timer check', checkPilotTimers), 60 * 1000);
 
     console.log(`Bot initialized with ${client.commands.size} commands`);
-});
+}
+
+client.once(Events.ClientReady, handleClientReady);
+if (Events.ClientReady !== 'ready') {
+    client.once('ready', handleClientReady);
+}
 
 client.on(Events.Debug, info => {
     if (process.env.DISCORD_DEBUG !== 'true') {
@@ -1513,17 +1533,22 @@ client.on(Events.ChannelDelete, async channel => {
 
 console.log('Starting bot login...');
 
-const loginTimeout = setTimeout(() => {
-    console.warn('Discord login is still waiting for the ready event after 120 seconds.');
-    console.warn('If this keeps happening, check the bot token and enabled Gateway Intents in the Discord Developer Portal.');
-}, 120000);
+readyWatchdog = setTimeout(() => {
+    console.error('Discord did not become ready after 180 seconds. Restarting so Render can reconnect.');
+    console.error(`WebSocket status: ${client.ws.status}`);
+    console.error('If this repeats, check Gateway Intents in the Discord Developer Portal: Server Members Intent and Message Content Intent.');
+    process.exit(1);
+}, 180000);
 
 client.login(config.token).then(() => {
-    clearTimeout(loginTimeout);
     console.log('✅ Login successful');
 }).catch(error => {
-    clearTimeout(loginTimeout);
+    if (readyWatchdog) {
+        clearTimeout(readyWatchdog);
+        readyWatchdog = null;
+    }
     console.error('❌ Login failed:', error.message);
     console.error('Error code:', error.code);
     console.error('Full error:', error);
+    process.exit(1);
 });
