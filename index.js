@@ -1149,6 +1149,17 @@ client.on(Events.InteractionCreate, async interaction => {
                         deny: [PermissionFlagsBits.ViewChannel]
                     },
                     {
+                        id: interaction.client.user.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory,
+                            PermissionFlagsBits.AttachFiles,
+                            PermissionFlagsBits.ManageMessages,
+                            PermissionFlagsBits.MentionEveryone
+                        ]
+                    },
+                    {
                         id: interaction.user.id,
                         allow: [
                             PermissionFlagsBits.ViewChannel,
@@ -1419,6 +1430,17 @@ Once the pilot is done, we humbly ask that you take a screenshot of your finishe
                         {
                             id: interaction.guild.id,
                             deny: [PermissionFlagsBits.ViewChannel]
+                        },
+                        {
+                            id: interaction.client.user.id,
+                            allow: [
+                                PermissionFlagsBits.ViewChannel,
+                                PermissionFlagsBits.SendMessages,
+                                PermissionFlagsBits.ReadMessageHistory,
+                                PermissionFlagsBits.AttachFiles,
+                                PermissionFlagsBits.ManageMessages,
+                                PermissionFlagsBits.MentionEveryone
+                            ]
                         },
                         {
                             id: interaction.user.id,

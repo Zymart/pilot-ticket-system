@@ -17,24 +17,11 @@ const {
     resolveTicketSummary
 } = require('../utils/ticketHelpers');
 
-function uniqueIds(ids) {
-    return [...new Set(ids.filter(Boolean))];
-}
-
-function buildCompletionMentions(summary) {
-    const userIds = uniqueIds([summary.ownerId, summary.sellerId]);
-    const roleIds = uniqueIds(config.system.supportRoleIds || []);
-    const mentions = [
-        ...userIds.map(id => `<@${id}>`),
-        ...roleIds.map(id => `<@&${id}>`)
-    ];
-
+function buildCompletionMentions() {
     return {
-        content: mentions.length > 0 ? mentions.join(' ') : 'Transaction complete.',
+        content: '@everyone',
         allowedMentions: {
-            parse: [],
-            users: userIds,
-            roles: roleIds
+            parse: ['everyone']
         }
     };
 }
@@ -119,14 +106,14 @@ module.exports = {
                 .setColor(0x57F287); // Green for pilot
             }
 
+            const publicCompletionEmbed = new EmbedBuilder(completionEmbed.toJSON());
             completionEmbed.addFields({ name: 'Transcript', value: 'Attached below.', inline: false });
-            const completionMentions = buildCompletionMentions(summary);
+            const completionMentions = buildCompletionMentions();
 
             await interaction.channel.send({
                 content: completionMentions.content,
-                embeds: [completionEmbed],
+                embeds: [publicCompletionEmbed],
                 components: [facebookVouchButton],
-                files: [buildTranscriptAttachment(fileName, fileBuffer)],
                 allowedMentions: completionMentions.allowedMentions
             }).catch(error => {
                 console.error('Failed to send done announcement in ticket channel:', error);
