@@ -961,7 +961,10 @@ async function autoDeleteMessage(message, delayMs = 60000) {
 async function sendTemporaryReply(message, content, delayMs = 30000) {
     const reply = await message.reply(content).catch(error => {
         console.error('Ticket panel setup reply failed:', error);
-        return null;
+        return message.channel.send(content).catch(sendError => {
+            console.error('Ticket panel setup fallback message failed:', sendError);
+            return null;
+        });
     });
 
     if (reply) {
@@ -1003,6 +1006,10 @@ client.on(Events.MessageCreate, async message => {
         await targetChannel.send({
             embeds: [buildTicketPanelEmbedFromMessage(message)],
             components: [buildTicketPanelActionRow()]
+        });
+
+        await message.delete().catch(error => {
+            console.error('Ticket panel source message delete failed:', error);
         });
 
         await sendTemporaryReply(message, `Ticket panel posted in ${targetChannel}.`);

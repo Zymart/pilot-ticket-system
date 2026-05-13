@@ -1,7 +1,10 @@
 const {
     SlashCommandBuilder,
     PermissionFlagsBits,
-    EmbedBuilder
+    EmbedBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle
 } = require('discord.js');
 const config = require('../config');
 const {
@@ -13,6 +16,28 @@ const {
     removeTicketByChannel,
     resolveTicketSummary
 } = require('../utils/ticketHelpers');
+
+function uniqueIds(ids) {
+    return [...new Set(ids.filter(Boolean))];
+}
+
+function buildCompletionMentions(summary) {
+    const userIds = uniqueIds([summary.ownerId, summary.sellerId]);
+    const roleIds = uniqueIds(config.system.supportRoleIds || []);
+    const mentions = [
+        ...userIds.map(id => `<@${id}>`),
+        ...roleIds.map(id => `<@&${id}>`)
+    ];
+
+    return {
+        content: mentions.length > 0 ? mentions.join(' ') : 'Transaction complete.',
+        allowedMentions: {
+            parse: [],
+            users: userIds,
+            roles: roleIds
+        }
+    };
+}
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -44,6 +69,12 @@ module.exports = {
             );
             const vouchChannel = interaction.guild.channels.cache.get(config.system.vouchChannelId);
             const vouchDestination = vouchChannel ? `${vouchChannel}` : `Channel ID: ${config.system.vouchChannelId}`;
+            const facebookVouchButton = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setLabel('Vouch on Facebook')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(config.system.facebookVouchUrl)
+            );
 
             const completionEmbed = new EmbedBuilder()
                 .setTitle('Transaction Complete')
@@ -53,6 +84,8 @@ module.exports = {
                 completionEmbed.setDescription(
                     [
                         'Thank you for using our trading service!',
+                        '',
+                        'Please vouch us on Facebook using the button below.',
                         '',
                         `Please Vouch us in ${vouchDestination}`,
                         '',
@@ -69,8 +102,7 @@ module.exports = {
             } else {
                 completionEmbed.setDescription(
                     [
-                        'Please Vouch us In Our Facebook Post:',
-                        config.system.facebookVouchUrl,
+                        'Please vouch us in our Facebook post using the button below.',
                         '',
                         `Or Vouch us in ${vouchDestination}`,
                         '',
@@ -88,6 +120,17 @@ module.exports = {
             }
 
             completionEmbed.addFields({ name: 'Transcript', value: 'Attached below.', inline: false });
+            const completionMentions = buildCompletionMentions(summary);
+
+            await interaction.channel.send({
+                content: completionMentions.content,
+                embeds: [completionEmbed],
+                components: [facebookVouchButton],
+                files: [buildTranscriptAttachment(fileName, fileBuffer)],
+                allowedMentions: completionMentions.allowedMentions
+            }).catch(error => {
+                console.error('Failed to send done announcement in ticket channel:', error);
+            });
 
             let dmStatus = '❌ Transcript could not be sent via DM (DMs might be closed).';
             if (summary.ownerId) {
@@ -95,6 +138,7 @@ module.exports = {
                     const owner = await interaction.client.users.fetch(summary.ownerId);
                     await owner.send({
                         embeds: [completionEmbed],
+                        components: [facebookVouchButton],
                         files: [buildTranscriptAttachment(fileName, fileBuffer)]
                     });
                     dmStatus = '📬 Transcript and completion message sent to the ticket owner\'s DMs.';
@@ -112,6 +156,7 @@ module.exports = {
                         const seller = await interaction.client.users.fetch(summary.sellerId);
                         await seller.send({
                             embeds: [completionEmbed],
+                            components: [facebookVouchButton],
                             files: [buildTranscriptAttachment(fileName, fileBuffer)]
                         });
                         dmStatus += '\n📬 Transcript also sent to the seller\'s DMs.';

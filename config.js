@@ -128,6 +128,6 @@ module.exports = {
         vouchChannelId: '1381279964300841062',
         ordersCompletedChannelId: '1498621701670568046',
         tradeLogChannelId: '1381279878313148546',
-        facebookVouchUrl: 'https://www.facebook.com/share/v/1HC628gfWL/'
+        facebookVouchUrl: 'https://www.facebook.com/61559271959655/posts/122194832654309065/?app=fbl'
     }
 };
