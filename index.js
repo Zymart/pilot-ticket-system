@@ -1004,8 +1004,12 @@ client.on(Events.MessageCreate, async message => {
         }
 
         await targetChannel.send({
+            content: '@everyone',
             embeds: [buildTicketPanelEmbedFromMessage(message)],
-            components: [buildTicketPanelActionRow()]
+            components: [buildTicketPanelActionRow()],
+            allowedMentions: {
+                parse: ['everyone']
+            }
         });
 
         await message.delete().catch(error => {
