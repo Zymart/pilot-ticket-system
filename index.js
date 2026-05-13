@@ -958,6 +958,60 @@ async function autoDeleteMessage(message, delayMs = 60000) {
     }, delayMs);
 }
 
+async function sendTemporaryReply(message, content, delayMs = 30000) {
+    const reply = await message.reply(content).catch(error => {
+        console.error('Ticket panel setup reply failed:', error);
+        return null;
+    });
+
+    if (reply) {
+        autoDeleteMessage(reply, delayMs);
+    }
+}
+
+client.on(Events.MessageCreate, async message => {
+    if (!message.guild || message.author.bot) {
+        return;
+    }
+
+    const draft = client.ticketPanelDrafts.get(message.author.id);
+    if (!draft) {
+        return;
+    }
+
+    if (Date.now() > draft.expiresAt) {
+        client.ticketPanelDrafts.delete(message.author.id);
+        await sendTemporaryReply(message, 'Ticket panel setup expired. Run `/ticket` again when you are ready.');
+        return;
+    }
+
+    if (message.guild.id !== draft.guildId || message.channel.id !== draft.sourceChannelId) {
+        return;
+    }
+
+    client.ticketPanelDrafts.delete(message.author.id);
+
+    try {
+        const targetChannel = message.guild.channels.cache.get(draft.targetChannelId) ||
+            await message.guild.channels.fetch(draft.targetChannelId).catch(() => null);
+
+        if (!targetChannel || targetChannel.type !== ChannelType.GuildText) {
+            await sendTemporaryReply(message, 'I could not find that text channel anymore. Run `/ticket` again and choose another channel.');
+            return;
+        }
+
+        await targetChannel.send({
+            embeds: [buildTicketPanelEmbedFromMessage(message)],
+            components: [buildTicketPanelActionRow()]
+        });
+
+        await sendTemporaryReply(message, `Ticket panel posted in ${targetChannel}.`);
+    } catch (error) {
+        console.error('Ticket panel publish failed:', error);
+        await sendTemporaryReply(message, 'I could not post the ticket panel. Please check my permissions in the selected channel.');
+    }
+});
+
 client.on(Events.InteractionCreate, async interaction => {
     try {
         if (interaction.isChatInputCommand()) {
