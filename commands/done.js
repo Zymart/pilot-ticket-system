@@ -4,7 +4,12 @@ const {
     EmbedBuilder,
     ActionRowBuilder,
     ButtonBuilder,
-    ButtonStyle
+    ButtonStyle,
+    MessageFlags,
+    ContainerBuilder,
+    TextDisplayBuilder,
+    SeparatorBuilder,
+    FileBuilder
 } = require('discord.js');
 const config = require('../config');
 const {
@@ -17,6 +22,8 @@ const {
     resolveTicketSummary
 } = require('../utils/ticketHelpers');
 
+const DONE_DELETE_DELAY_MS = 5000;
+
 function buildCompletionMentions() {
     return {
         content: '@everyone',
@@ -24,6 +31,235 @@ function buildCompletionMentions() {
             parse: ['everyone']
         }
     };
+}
+
+function getVouchChannelUrl(guildId) {
+    if (!guildId || !config.system.vouchChannelId) {
+        return null;
+    }
+
+    return `https://discord.com/channels/${guildId}/${config.system.vouchChannelId}`;
+}
+
+function buildVouchButtons(guildId) {
+    const buttons = [];
+
+    if (config.system.facebookVouchUrl) {
+        buttons.push(
+            new ButtonBuilder()
+                .setLabel('Vouch on Facebook')
+                .setStyle(ButtonStyle.Link)
+                .setURL(config.system.facebookVouchUrl)
+        );
+    }
+
+    const vouchChannelUrl = getVouchChannelUrl(guildId);
+    if (vouchChannelUrl) {
+        buttons.push(
+            new ButtonBuilder()
+                .setLabel('Open Vouch Channel')
+                .setStyle(ButtonStyle.Link)
+                .setURL(vouchChannelUrl)
+        );
+    }
+
+    return buttons;
+}
+
+function buildVouchActionRow(guildId) {
+    const buttons = buildVouchButtons(guildId);
+    if (buttons.length === 0) {
+        return null;
+    }
+
+    return new ActionRowBuilder().addComponents(...buttons);
+}
+
+function buildCompletionFields(summary, ownerMention, completedByTag) {
+    if (summary.isTrade) {
+        return [
+            { name: 'Buyer', value: ownerMention, inline: true },
+            { name: 'Seller', value: summary.sellerId ? `<@${summary.sellerId}>` : 'Unknown', inline: true },
+            { name: 'Product', value: summary.buying, inline: false },
+            { name: 'Completed By', value: completedByTag, inline: true }
+        ];
+    }
+
+    return [
+        { name: 'Ticket Owner', value: ownerMention, inline: true },
+        { name: 'Roblox Username', value: summary.robloxUsername, inline: true },
+        { name: 'Buying', value: summary.buying, inline: true },
+        { name: 'Game', value: summary.game, inline: true },
+        { name: 'Completed By', value: completedByTag, inline: true }
+    ];
+}
+
+function buildCompletionDetails(summary, ownerMention, completedByTag) {
+    return buildCompletionFields(summary, ownerMention, completedByTag)
+        .map(field => `- **${field.name}:** ${field.value}`)
+        .join('\n');
+}
+
+function buildCompletionIntro(summary, includeEveryone) {
+    const lines = [];
+
+    if (includeEveryone) {
+        lines.push('@everyone', '');
+    }
+
+    lines.push(summary.isTrade ? '## Transaction Complete' : '## Ticket Complete');
+    lines.push(summary.isTrade
+        ? 'Thank you for using our trading service.'
+        : 'Thank you for using our pilot service.');
+    lines.push('Use the buttons below to vouch on Facebook or open the vouch channel.');
+    lines.push(`This ticket and any linked channels will close in ${DONE_DELETE_DELAY_MS / 1000} seconds.`);
+
+    return lines.join('\n');
+}
+
+function buildCompletionComponents({
+    summary,
+    ownerMention,
+    completedByTag,
+    guildId,
+    includeEveryone = false,
+    transcriptFileName = null
+}) {
+    const accentColor = summary.isTrade ? 0x9B59B6 : 0x57F287;
+    const container = new ContainerBuilder()
+        .setAccentColor(accentColor)
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(buildCompletionIntro(summary, includeEveryone))
+        )
+        .addSeparatorComponents(
+            new SeparatorBuilder().setDivider(true)
+        )
+        .addTextDisplayComponents(
+            new TextDisplayBuilder().setContent(`**Details**\n${buildCompletionDetails(summary, ownerMention, completedByTag)}`)
+        );
+
+    const vouchActionRow = buildVouchActionRow(guildId);
+    if (vouchActionRow) {
+        container.addActionRowComponents(vouchActionRow);
+    }
+
+    if (transcriptFileName) {
+        container
+            .addSeparatorComponents(new SeparatorBuilder().setDivider(true))
+            .addTextDisplayComponents(
+                new TextDisplayBuilder().setContent('**Transcript**\nAttached below.')
+            )
+            .addFileComponents(
+                new FileBuilder().setURL(`attachment://${transcriptFileName}`)
+            );
+    }
+
+    return [container];
+}
+
+function buildCompletionEmbed(summary, ownerMention, completedByTag, includeTranscript = false) {
+    const completionEmbed = new EmbedBuilder()
+        .setTitle(summary.isTrade ? 'Transaction Complete' : 'Ticket Complete')
+        .setDescription([
+            summary.isTrade
+                ? 'Thank you for using our trading service.'
+                : 'Thank you for using our pilot service.',
+            '',
+            'Use the buttons below to vouch on Facebook or open the vouch channel.',
+            `This ticket and any linked channels will close in ${DONE_DELETE_DELAY_MS / 1000} seconds.`
+        ].join('\n'))
+        .addFields(buildCompletionFields(summary, ownerMention, completedByTag))
+        .setColor(summary.isTrade ? 0x9B59B6 : 0x57F287)
+        .setTimestamp();
+
+    if (includeTranscript) {
+        completionEmbed.addFields({ name: 'Transcript', value: 'Attached below.', inline: false });
+    }
+
+    return completionEmbed;
+}
+
+function buildTranscriptFiles(transcriptFileName, transcriptFileBuffer) {
+    if (!transcriptFileName || !transcriptFileBuffer) {
+        return undefined;
+    }
+
+    return [buildTranscriptAttachment(transcriptFileName, transcriptFileBuffer)];
+}
+
+function buildCompletionPayload({
+    summary,
+    ownerMention,
+    completedByTag,
+    guildId,
+    includeEveryone = false,
+    transcriptFileName = null,
+    transcriptFileBuffer = null
+}) {
+    const completionMentions = includeEveryone ? buildCompletionMentions() : null;
+    const payload = {
+        flags: MessageFlags.IsComponentsV2,
+        components: buildCompletionComponents({
+            summary,
+            ownerMention,
+            completedByTag,
+            guildId,
+            includeEveryone,
+            transcriptFileName
+        })
+    };
+
+    const transcriptFiles = buildTranscriptFiles(transcriptFileName, transcriptFileBuffer);
+    if (transcriptFiles) {
+        payload.files = transcriptFiles;
+    }
+
+    if (completionMentions) {
+        payload.allowedMentions = completionMentions.allowedMentions;
+    }
+
+    return payload;
+}
+
+function buildLegacyCompletionPayload({
+    summary,
+    ownerMention,
+    completedByTag,
+    guildId,
+    includeEveryone = false,
+    transcriptFileName = null,
+    transcriptFileBuffer = null
+}) {
+    const completionMentions = includeEveryone ? buildCompletionMentions() : null;
+    const payload = {
+        embeds: [buildCompletionEmbed(summary, ownerMention, completedByTag, Boolean(transcriptFileName))]
+    };
+    const vouchActionRow = buildVouchActionRow(guildId);
+
+    if (vouchActionRow) {
+        payload.components = [vouchActionRow];
+    }
+
+    const transcriptFiles = buildTranscriptFiles(transcriptFileName, transcriptFileBuffer);
+    if (transcriptFiles) {
+        payload.files = transcriptFiles;
+    }
+
+    if (completionMentions) {
+        payload.content = completionMentions.content;
+        payload.allowedMentions = completionMentions.allowedMentions;
+    }
+
+    return payload;
+}
+
+async function sendCompletionMessage(target, payloadOptions) {
+    try {
+        return await target.send(buildCompletionPayload(payloadOptions));
+    } catch (error) {
+        console.error('Components V2 completion message failed; falling back to legacy embed:', error);
+        return await target.send(buildLegacyCompletionPayload(payloadOptions));
+    }
 }
 
 module.exports = {
@@ -54,125 +290,66 @@ module.exports = {
                 ticketData,
                 interaction.user.tag
             );
-            const vouchChannel = interaction.guild.channels.cache.get(config.system.vouchChannelId);
-            const vouchDestination = vouchChannel ? `${vouchChannel}` : `Channel ID: ${config.system.vouchChannelId}`;
-            const facebookVouchButton = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setLabel('Vouch on Facebook')
-                    .setStyle(ButtonStyle.Link)
-                    .setURL(config.system.facebookVouchUrl)
-            );
+            const completionPayloadOptions = {
+                summary,
+                ownerMention,
+                completedByTag: interaction.user.tag,
+                guildId: interaction.guild.id
+            };
 
-            const completionEmbed = new EmbedBuilder()
-                .setTitle('Transaction Complete')
-                .setTimestamp();
-
-            if (summary.isTrade) {
-                completionEmbed.setDescription(
-                    [
-                        'Thank you for using our trading service!',
-                        '',
-                        'Please vouch us on Facebook using the button below.',
-                        '',
-                        `Please Vouch us in ${vouchDestination}`,
-                        '',
-                        'This ticket and its connected channel will close in 5 seconds.'
-                    ].join('\n')
-                )
-                .addFields(
-                    { name: 'Buyer', value: ownerMention, inline: true },
-                    { name: 'Seller', value: summary.sellerId ? `<@${summary.sellerId}>` : 'Unknown', inline: true },
-                    { name: 'Product', value: summary.buying, inline: false },
-                    { name: 'Completed By', value: interaction.user.tag, inline: true }
-                )
-                .setColor(0x9B59B6); // Purple for trade
-            } else {
-                completionEmbed.setDescription(
-                    [
-                        'Please vouch us in our Facebook post using the button below.',
-                        '',
-                        `Or Vouch us in ${vouchDestination}`,
-                        '',
-                        'This ticket and its connected channel will close in 5 seconds.'
-                    ].join('\n')
-                )
-                .addFields(
-                    { name: 'Ticket Owner', value: ownerMention, inline: true },
-                    { name: 'Roblox Username', value: summary.robloxUsername, inline: true },
-                    { name: 'Buying', value: summary.buying, inline: true },
-                    { name: 'Game', value: summary.game, inline: true },
-                    { name: 'Completed By', value: interaction.user.tag, inline: true }
-                )
-                .setColor(0x57F287); // Green for pilot
-            }
-
-            const publicCompletionEmbed = new EmbedBuilder(completionEmbed.toJSON());
-            completionEmbed.addFields({ name: 'Transcript', value: 'Attached below.', inline: false });
-            const completionMentions = buildCompletionMentions();
-
-            await interaction.channel.send({
-                content: completionMentions.content,
-                embeds: [publicCompletionEmbed],
-                components: [facebookVouchButton],
-                allowedMentions: completionMentions.allowedMentions
-            }).catch(error => {
-                console.error('Failed to send done announcement in ticket channel:', error);
+            await sendCompletionMessage(interaction.channel, {
+                ...completionPayloadOptions,
+                includeEveryone: true
             });
 
-            let dmStatus = '❌ Transcript could not be sent via DM (DMs might be closed).';
+            let dmStatus = 'Transcript could not be sent via DM. Their DMs might be closed.';
             if (summary.ownerId) {
                 try {
                     const owner = await interaction.client.users.fetch(summary.ownerId);
-                    await owner.send({
-                        embeds: [completionEmbed],
-                        components: [facebookVouchButton],
-                        files: [buildTranscriptAttachment(fileName, fileBuffer)]
+                    await sendCompletionMessage(owner, {
+                        ...completionPayloadOptions,
+                        transcriptFileName: fileName,
+                        transcriptFileBuffer: fileBuffer
                     });
-                    dmStatus = '📬 Transcript and completion message sent to the ticket owner\'s DMs.';
+                    dmStatus = 'Transcript and completion message sent to the ticket owner DMs.';
                 } catch (dmError) {
                     console.error(`Failed to DM ticket owner (${summary.ownerId}):`, dmError);
                 }
             } else {
-                dmStatus = '⚠️ Could not find ticket owner ID to send DM.';
+                dmStatus = 'Could not find ticket owner ID to send DM.';
             }
 
-            // If it's a trade, DM the seller too and log to the trade channel
             if (summary.isTrade) {
                 if (summary.sellerId) {
                     try {
                         const seller = await interaction.client.users.fetch(summary.sellerId);
-                        await seller.send({
-                            embeds: [completionEmbed],
-                            components: [facebookVouchButton],
-                            files: [buildTranscriptAttachment(fileName, fileBuffer)]
+                        await sendCompletionMessage(seller, {
+                            ...completionPayloadOptions,
+                            transcriptFileName: fileName,
+                            transcriptFileBuffer: fileBuffer
                         });
-                        dmStatus += '\n📬 Transcript also sent to the seller\'s DMs.';
-                    } catch (e) {
-                        console.error('Failed to DM seller:', e);
+                        dmStatus += '\nTranscript also sent to the seller DMs.';
+                    } catch (error) {
+                        console.error('Failed to DM seller:', error);
                     }
                 }
 
                 const tradeLogChannel = interaction.guild.channels.cache.get(config.system.tradeLogChannelId);
                 if (tradeLogChannel) {
                     const logEmbed = new EmbedBuilder()
-                        .setTitle('📝 Trade Transaction Log')
+                        .setTitle('Trade Transaction Log')
                         .setColor(0x9B59B6)
-                        .addFields(
-                            { name: 'Buyer', value: ownerMention, inline: true },
-                            { name: 'Seller', value: summary.sellerId ? `<@${summary.sellerId}>` : 'Unknown', inline: true },
-                            { name: 'Product', value: summary.buying, inline: false },
-                            { name: 'Completed By', value: interaction.user.tag, inline: true }
-                        )
+                        .addFields(buildCompletionFields(summary, ownerMention, interaction.user.tag))
                         .setTimestamp();
-                    
-                    await tradeLogChannel.send({ 
+
+                    await tradeLogChannel.send({
                         embeds: [logEmbed],
                         files: [buildTranscriptAttachment(fileName, fileBuffer)]
                     });
                 }
             }
 
-            let replyContent = `✅ **Transaction marked complete!**\n\n${dmStatus}\n`;
+            let replyContent = `**Transaction marked complete!**\n\n${dmStatus}\n`;
 
             if (!summary.isTrade) {
                 const counterResult = await incrementCounterChannel(
@@ -183,12 +360,12 @@ module.exports = {
                     return { updated: false, reason: 'rename_failed' };
                 });
                 if (counterResult.updated) {
-                    replyContent += `📈 Orders completed counter is now **${counterResult.nextValue}**.\n`;
+                    replyContent += `Orders completed counter is now **${counterResult.nextValue}**.\n`;
                 }
             }
 
             removeTicketByChannel(configManager, interaction.channel.id);
-            replyContent += '\nDeleting this ticket and all linked channels in 5 seconds...';
+            replyContent += `\nDeleting this ticket and all linked channels in ${DONE_DELETE_DELAY_MS / 1000} seconds...`;
             await interaction.editReply({ content: replyContent });
 
             setTimeout(async () => {
@@ -198,7 +375,7 @@ module.exports = {
                 } catch (error) {
                     console.error('Done command cleanup failed:', error);
                 }
-            }, 5000);
+            }, DONE_DELETE_DELAY_MS);
         } catch (error) {
             console.error('Done command failed:', error);
             await interaction.editReply({

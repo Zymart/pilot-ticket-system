@@ -96,10 +96,6 @@ const commands = [];
 const DISCORD_GATEWAY_RETRY_MS = 15 * 60 * 1000;
 const DISCORD_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
@@ -626,6 +622,14 @@ async function preflightDiscordGateway() {
 }
 
 async function startBot() {
+    if (client.isReady()) {
+        return;
+    }
+
+    if (loginAttemptInProgress) {
+        return;
+    }
+
     if (!config.token) {
         runtimeStatus.setDiscord({
             state: 'config_error',
@@ -634,13 +638,13 @@ async function startBot() {
         });
         console.error(`Bot token is missing. Set DISCORD_TOKEN in Render or in ${path.join(__dirname, '.env')}.`);
         console.error('Privileged Gateway Intents do not start the bot by themselves; the process must have a valid bot token.');
-        process.exit(1);
+        return;
     }
 
-    while (!(await preflightDiscordGateway())) {
-        const minutes = Math.round(DISCORD_GATEWAY_RETRY_MS / 60000);
-        console.error(`Discord is blocking or rate-limiting this Render instance. Waiting ${minutes} minutes before retrying gateway login.`);
-        await delay(DISCORD_GATEWAY_RETRY_MS);
+    loginAttemptInProgress = true;
+
+    if (process.env.DISCORD_GATEWAY_PREFLIGHT === 'true' && !(await preflightDiscordGateway())) {
+        console.warn('Discord gateway preflight failed. Attempting discord.js login anyway so the official client retry flow can run.');
     }
 
     console.log('Starting bot login...');
@@ -657,18 +661,18 @@ async function startBot() {
         });
     }, 45000);
     loginExitWatchdog = setTimeout(() => {
-        const message = 'Discord login timed out before ClientReady. Restarting Render process.';
+        const message = 'Discord login timed out before ClientReady.';
         runtimeStatus.setDiscord({
             state: 'login_timeout',
             ready: false,
             lastError: message
         });
         console.error(message);
-        process.exit(1);
+        client.destroy();
+        scheduleBotRetry(message);
     }, DISCORD_LOGIN_TIMEOUT_MS);
 
     client.login(config.token).catch(err => {
-        clearLoginWatchdogs();
         runtimeStatus.setDiscord({
             state: 'login_failed',
             ready: false,
@@ -677,12 +681,14 @@ async function startBot() {
             lastErrorCode: err.code
         });
         console.error('Login failed:', err);
-        process.exit(1);
+        scheduleBotRetry(err.message);
     });
 }
 
 let readyWatchdog;
 let loginExitWatchdog;
+let loginAttemptInProgress = false;
+let botRetryTimeout;
 let readyTasksStarted = false;
 
 function clearLoginWatchdogs() {
@@ -697,6 +703,28 @@ function clearLoginWatchdogs() {
     }
 }
 
+function scheduleBotRetry(reason) {
+    clearLoginWatchdogs();
+    loginAttemptInProgress = false;
+
+    const minutes = Math.round(DISCORD_GATEWAY_RETRY_MS / 60000);
+    runtimeStatus.setDiscord({
+        state: 'retry_scheduled',
+        ready: false,
+        lastError: reason || `Retrying Discord login in ${minutes} minutes.`
+    });
+
+    if (botRetryTimeout) {
+        return;
+    }
+
+    console.error(`Retrying Discord login in ${minutes} minutes.`);
+    botRetryTimeout = setTimeout(() => {
+        botRetryTimeout = null;
+        startBot();
+    }, DISCORD_GATEWAY_RETRY_MS);
+}
+
 async function handleClientReady() {
     if (readyTasksStarted) {
         return;
@@ -705,6 +733,11 @@ async function handleClientReady() {
     readyTasksStarted = true;
 
     clearLoginWatchdogs();
+    loginAttemptInProgress = false;
+    if (botRetryTimeout) {
+        clearTimeout(botRetryTimeout);
+        botRetryTimeout = null;
+    }
 
     console.log(`✅ Bot ready: ${client.user.tag}`);
     runtimeStatus.setDiscord({
