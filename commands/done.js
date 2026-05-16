@@ -21,6 +21,10 @@ const {
     removeTicketByChannel,
     resolveTicketSummary
 } = require('../utils/ticketHelpers');
+const {
+    ensureDiscordRestToken,
+    sendWithDiscordRestToken
+} = require('../utils/discordRest');
 
 const DONE_DELETE_DELAY_MS = 5000;
 
@@ -255,10 +259,18 @@ function buildLegacyCompletionPayload({
 
 async function sendCompletionMessage(target, payloadOptions) {
     try {
-        return await target.send(buildCompletionPayload(payloadOptions));
+        return await sendWithDiscordRestToken(
+            target,
+            buildCompletionPayload(payloadOptions),
+            '/done completion message'
+        );
     } catch (error) {
         console.error('Components V2 completion message failed; falling back to legacy embed:', error);
-        return await target.send(buildLegacyCompletionPayload(payloadOptions));
+        return await sendWithDiscordRestToken(
+            target,
+            buildLegacyCompletionPayload(payloadOptions),
+            '/done legacy completion message'
+        );
     }
 }
 
@@ -269,6 +281,8 @@ module.exports = {
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
     async execute(interaction, { configManager }) {
+        ensureDiscordRestToken(interaction.client, '/done command');
+
         if (!isTicketChannel(interaction.channel)) {
             return await interaction.editReply({
                 content: 'This command can only be used in ticket channels.'
@@ -297,10 +311,26 @@ module.exports = {
                 guildId: interaction.guild.id
             };
 
-            await sendCompletionMessage(interaction.channel, {
-                ...completionPayloadOptions,
-                includeEveryone: true
-            });
+            let channelMessageStatus = 'Completion message posted in this ticket.';
+            try {
+                await sendCompletionMessage(interaction.channel, {
+                    ...completionPayloadOptions,
+                    includeEveryone: true
+                });
+            } catch (error) {
+                console.error('Done command channel completion message with @everyone failed; retrying without @everyone:', error);
+
+                try {
+                    await sendCompletionMessage(interaction.channel, {
+                        ...completionPayloadOptions,
+                        includeEveryone: false
+                    });
+                    channelMessageStatus = 'Completion message posted in this ticket without @everyone.';
+                } catch (retryError) {
+                    console.error('Done command channel completion message failed:', retryError);
+                    channelMessageStatus = 'Completion message could not be posted in this ticket.';
+                }
+            }
 
             let dmStatus = 'Transcript could not be sent via DM. Their DMs might be closed.';
             if (summary.ownerId) {
@@ -342,14 +372,22 @@ module.exports = {
                         .addFields(buildCompletionFields(summary, ownerMention, interaction.user.tag))
                         .setTimestamp();
 
-                    await tradeLogChannel.send({
-                        embeds: [logEmbed],
-                        files: [buildTranscriptAttachment(fileName, fileBuffer)]
-                    });
+                    try {
+                        await sendWithDiscordRestToken(
+                            tradeLogChannel,
+                            {
+                                embeds: [logEmbed],
+                                files: [buildTranscriptAttachment(fileName, fileBuffer)]
+                            },
+                            '/done trade log message'
+                        );
+                    } catch (logError) {
+                        console.error('Trade log send failed:', logError);
+                    }
                 }
             }
 
-            let replyContent = `**Transaction marked complete!**\n\n${dmStatus}\n`;
+            let replyContent = `**Transaction marked complete!**\n\n${channelMessageStatus}\n${dmStatus}\n`;
 
             if (!summary.isTrade) {
                 const counterResult = await incrementCounterChannel(

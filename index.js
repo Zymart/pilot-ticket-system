@@ -27,6 +27,7 @@ const path = require('path');
 const config = require('./config');
 const configManager = require('./utils/configManager');
 const runtimeStatus = require('./utils/runtimeStatus');
+const { ensureDiscordRestToken } = require('./utils/discordRest');
 const {
     buildTranscriptAttachment,
     createTranscript,
@@ -72,6 +73,7 @@ const client = new Client({
         retries: 3
     }
 });
+ensureDiscordRestToken(client, 'Initial Discord REST token setup');
 
 client.commands = new Collection();
 client.ticketPanelDrafts = new Map();
@@ -81,6 +83,15 @@ const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('
 const commands = [];
 const DISCORD_GATEWAY_RETRY_MS = 15 * 60 * 1000;
 const DISCORD_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
+
+function prepareDiscordRestTask(context) {
+    if (!client.isReady()) {
+        console.warn(`${context} skipped: Discord client is not ready.`);
+        return false;
+    }
+
+    return ensureDiscordRestToken(client, context);
+}
 
 for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
@@ -110,6 +121,10 @@ async function deployCommands() {
 }
 
 async function sendPostGuide(channel) {
+    if (!prepareDiscordRestTask('Post guide refresh')) {
+        return;
+    }
+
     const guideEmbed = new EmbedBuilder()
         .setTitle('📖 How to Post a Product')
         .setDescription('To showcase your products in the marketplace, follow these steps:')
@@ -139,6 +154,10 @@ async function sendPostGuide(channel) {
 }
 
 async function autoPostAnimeNews() {
+    if (!prepareDiscordRestTask('Auto anime news post')) {
+        return;
+    }
+
     const channelId = config.system.animeNewsChannelId;
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
@@ -253,6 +272,10 @@ async function autoPostAnimeNews() {
 }
 
 async function autoPostMangaNews() {
+    if (!prepareDiscordRestTask('Auto manga news post')) {
+        return;
+    }
+
     const channelId = config.system.mangaNewsChannelId;
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
@@ -339,6 +362,10 @@ async function autoPostMangaNews() {
 }
 
 async function autoPostAnimeSuggestions() {
+    if (!prepareDiscordRestTask('Auto anime suggestion post')) {
+        return;
+    }
+
     const channelId = config.system.animeSuggestChannelId;
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
@@ -412,6 +439,10 @@ async function autoPostAnimeSuggestions() {
 }
 
 async function autoPostAniListUpdates() {
+    if (!prepareDiscordRestTask('Auto AniList update post')) {
+        return;
+    }
+
     const channelId = config.system.animeNewsChannelId;
     const channel = client.channels.cache.get(channelId);
     if (!channel) return;
@@ -510,6 +541,10 @@ async function autoPostAniListUpdates() {
 
 async function checkAndCleanOldPosts() {
     console.log('Running old post cleanup...');
+    if (!prepareDiscordRestTask('Old post cleanup')) {
+        return;
+    }
+
     const allPosts = configManager.getAllPosts();
     const now = Date.now();
 
@@ -628,6 +663,7 @@ async function startBot() {
     }
 
     loginAttemptInProgress = true;
+    ensureDiscordRestToken(client, 'Discord login');
 
     if (process.env.DISCORD_GATEWAY_PREFLIGHT === 'true' && !(await preflightDiscordGateway())) {
         console.warn('Discord gateway preflight failed. Attempting discord.js login anyway so the official client retry flow can run.');
@@ -720,6 +756,7 @@ async function handleClientReady() {
 
     clearLoginWatchdogs();
     loginAttemptInProgress = false;
+    ensureDiscordRestToken(client, 'Discord ready');
     if (botRetryTimeout) {
         clearTimeout(botRetryTimeout);
         botRetryTimeout = null;
@@ -996,6 +1033,8 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
+    ensureDiscordRestToken(client, 'MessageCreate handling');
+
     const draft = client.ticketPanelDrafts.get(message.author.id);
     if (!draft) {
         return;
@@ -1044,6 +1083,8 @@ client.on(Events.MessageCreate, async message => {
 
 client.on(Events.InteractionCreate, async interaction => {
     try {
+        ensureDiscordRestToken(client, 'InteractionCreate handling');
+
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
             if (!command) {
@@ -1719,6 +1760,10 @@ Do not spam or beg for items. This creates a negative experience for others and 
 async function checkPilotTimers() {
     // Placeholder for timer logic referenced in handleClientReady
     console.log('Checking pilot timers...');
+    if (!prepareDiscordRestTask('Pilot timer check')) {
+        return;
+    }
+
     const state = configManager.getPilotState?.() || { timers: {} };
     if (!state.timers) return;
 
