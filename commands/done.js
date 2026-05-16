@@ -47,13 +47,25 @@ function getVouchChannelUrl(guildId) {
 
 function buildVouchButtons(guildId) {
     const buttons = [];
+    const facebookVouchLinks = Array.isArray(config.system.facebookVouchLinks)
+        ? config.system.facebookVouchLinks
+        : [
+            {
+                label: 'Facebook',
+                url: config.system.facebookVouchUrl
+            }
+        ];
 
-    if (config.system.facebookVouchUrl) {
+    for (const link of facebookVouchLinks) {
+        if (!link?.label || !link?.url) {
+            continue;
+        }
+
         buttons.push(
             new ButtonBuilder()
-                .setLabel('Vouch on Facebook')
+                .setLabel(link.label)
                 .setStyle(ButtonStyle.Link)
-                .setURL(config.system.facebookVouchUrl)
+                .setURL(link.url)
         );
     }
 
