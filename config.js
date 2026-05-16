@@ -130,11 +130,11 @@ module.exports = {
         tradeLogChannelId: '1381279878313148546',
         facebookVouchLinks: [
             {
-                label: 'Renz',
+                label: 'RENZ VOUCH',
                 url: 'https://www.facebook.com/61559271959655/posts/122194832654309065/?app=fbl'
             },
             {
-                label: 'TMARYZ',
+                label: 'TMARYZ VOUCH',
                 url: 'https://www.facebook.com/share/v/1BQaZVkqeR/'
             }
         ]
