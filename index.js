@@ -28,6 +28,14 @@ const config = require('./config');
 const configManager = require('./utils/configManager');
 const runtimeStatus = require('./utils/runtimeStatus');
 const { ensureDiscordRestToken } = require('./utils/discordRest');
+
+// Forbidden filenames that will trigger auto-deletion and warnings
+const FORBIDDEN_FILENAMES = [
+    'DSC_7570.jpg',
+    'photo_2026-06-11_15-16-58.jpg',
+    'photo_2026-05-31_03-38-07.jpg',
+    '20260613_084259.jpg'
+];
 const {
     buildTranscriptAttachment,
     createTranscript,
@@ -1078,6 +1086,87 @@ client.on(Events.MessageCreate, async message => {
     } catch (error) {
         console.error('Ticket panel publish failed:', error);
         await sendTemporaryReply(message, 'I could not post the ticket panel. Please check my permissions in the selected channel.');
+    }
+});
+
+// Message handler for forbidden attachment detection
+client.on(Events.MessageCreate, async message => {
+    // Ignore bot messages and DMs
+    if (!message.guild || message.author.bot) {
+        return;
+    }
+
+    // Skip if this is part of ticket panel setup (handled by another handler)
+    const draft = client.ticketPanelDrafts.get(message.author.id);
+    if (draft) {
+        return;
+    }
+
+    // Check if message has attachments
+    if (message.attachments.size === 0) {
+        return;
+    }
+
+    // Check each attachment for forbidden filenames
+    for (const [attachmentId, attachment] of message.attachments) {
+        const filename = attachment.name;
+
+        // Check if filename matches any forbidden filename (case-insensitive)
+        const isForbidden = FORBIDDEN_FILENAMES.some(forbidden =>
+            filename.toLowerCase() === forbidden.toLowerCase()
+        );
+
+        if (isForbidden) {
+            try {
+                // Delete the message
+                await message.delete();
+
+                // Send warning DM to the user
+                try {
+                    await message.author.send(`⚠️ **Warning**: Your message was deleted because it contained an image with a forbidden filename: \`${filename}\`\n\nPlease review our community guidelines and avoid sharing such content.`);
+                } catch (dmError) {
+                    // If we can't send a DM, we can't do much - user might have DMs disabled
+                    console.log(`Could not send DM to user ${message.author.id} (${message.author.tag}): likely DMs disabled`);
+                }
+
+                // Notify moderators/support team
+                try {
+                    const guildConfig = config.system;
+                    const supportRoleIds = guildConfig?.supportRoleIds || [];
+
+                    if (supportRoleIds.length > 0) {
+                        // Create a message mentioning all support roles
+                        const roleMentions = supportRoleIds.map(roleId => `<@&${roleId}>`).join(' ');
+
+                        const moderatorMessage = `🚨 **Moderator Alert**: User ${message.author} (${message.author.id}) sent a message with forbidden image filename \`${filename}\` that was automatically deleted.\n\nMessage content: ${message.content || '[No text content]'}\nChannel: ${message.channel} (${message.channel.id})\nTimestamp: ${new Date().toLocaleString()}`;
+
+                        // Send to a appropriate channel - we'll use the first available channel where bot can send messages
+                        // For now, we'll try to send to the guild's system channel or first text channel
+                        const targetChannel = message.guild.systemChannel ||
+                                            message.guild.channels.cache.find(c =>
+                                                c.type === ChannelType.GuildText &&
+                                                c.permissionsFor(message.guild.members.me).has(PermissionFlagsBits.SendMessages)
+                                            ) ||
+                                            message.channel; // Fallback to original channel if no better option
+
+                        await targetChannel.send({
+                            content: `${roleMentions}\n${moderatorMessage}`
+                        });
+                    } else {
+                        // No support roles configured, log to console instead
+                        console.log(`[MODERATOR ALERT] User ${message.author.tag} (${message.author.id}) sent forbidden image: ${filename}`);
+                    }
+                } catch (modError) {
+                    console.error('Failed to send moderator notification:', modError);
+                }
+
+                // Stop checking other attachments in this message since we already took action
+                break;
+            } catch (error) {
+                console.error('Error processing forbidden attachment:', error);
+                // Continue to check other attachments even if one fails
+            }
+        }
     }
 });
 
