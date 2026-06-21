@@ -36,6 +36,37 @@ const FORBIDDEN_FILENAMES = [
     'photo_2026-05-31_03-38-07.jpg',
     '20260613_084259.jpg'
 ];
+
+function getAttachmentFilename(attachment) {
+    return attachment?.name || attachment?.filename || '';
+}
+
+function findForbiddenFilename(filename) {
+    if (!filename) {
+        return null;
+    }
+
+    const normalizedFilename = filename.toLowerCase();
+    return FORBIDDEN_FILENAMES.find(forbidden =>
+        normalizedFilename === forbidden.toLowerCase()
+    ) || null;
+}
+
+function getMessageAttachmentsForModeration(message) {
+    const attachments = Array.from(message.attachments.values()).map(attachment => ({
+        filename: getAttachmentFilename(attachment)
+    }));
+
+    for (const snapshot of message.messageSnapshots?.values?.() || []) {
+        for (const attachment of snapshot.attachments?.values?.() || []) {
+            attachments.push({
+                filename: getAttachmentFilename(attachment)
+            });
+        }
+    }
+
+    return attachments;
+}
 const {
     buildTranscriptAttachment,
     createTranscript,
@@ -1102,19 +1133,16 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
-    // Check if message has attachments
-    if (message.attachments.size === 0) {
+    const attachmentsToCheck = getMessageAttachmentsForModeration(message);
+
+    // Check if message has attachments, including Discord forwarded message snapshots
+    if (attachmentsToCheck.length === 0) {
         return;
     }
 
     // Check each attachment for forbidden filenames
-    for (const [attachmentId, attachment] of message.attachments) {
-        const filename = attachment.name;
-
-        // Check if filename matches any forbidden filename (case-insensitive)
-        const isForbidden = FORBIDDEN_FILENAMES.some(forbidden =>
-            filename.toLowerCase() === forbidden.toLowerCase()
-        );
+    for (const { filename } of attachmentsToCheck) {
+        const isForbidden = Boolean(findForbiddenFilename(filename));
 
         if (isForbidden) {
             try {
