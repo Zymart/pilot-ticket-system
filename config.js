@@ -117,6 +117,7 @@ module.exports = {
     port: process.env.PORT || 3000,
     system: {
         ticketCategoryId: '1381276042475339776',
+        botChatChannelId: '1381259060090765422',
         pilotChannelId: '1381795248547827762',
         supportRoleIds: ['1381256734403854436', '1381610337882607666', '1381256815370834002', '1381255162672185424'],
         postChannelId: '1498927368587182180',

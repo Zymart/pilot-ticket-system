@@ -36,6 +36,7 @@ const FORBIDDEN_FILENAMES = [
     'photo_2026-05-31_03-38-07.jpg',
     '20260613_084259.jpg'
 ];
+const DISCORD_INVITE_LINK_REGEX = /\b(?:https?:\/\/)?(?:www\.)?(?:discord\.gg|discord(?:app)?\.com\/invite)\/[^\s<]+/i;
 
 function getAttachmentFilename(attachment) {
     return attachment?.name || attachment?.filename || '';
@@ -66,6 +67,43 @@ function getMessageAttachmentsForModeration(message) {
     }
 
     return attachments;
+}
+
+function isAdminMember(member) {
+    return Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator));
+}
+
+async function getBotChatChannel(guild) {
+    const botChatChannelId = config.system?.botChatChannelId;
+    if (!botChatChannelId) {
+        return null;
+    }
+
+    return guild.channels.cache.get(botChatChannelId) ||
+        await guild.channels.fetch(botChatChannelId).catch(() => null);
+}
+
+async function sendModeratorAlert(message, moderatorMessage) {
+    try {
+        const guildConfig = config.system;
+        const supportRoleIds = guildConfig?.supportRoleIds || [];
+        const roleMentions = supportRoleIds.map(roleId => `<@&${roleId}>`).join(' ');
+        const targetChannel = await getBotChatChannel(message.guild);
+
+        if (
+            targetChannel?.type === ChannelType.GuildText &&
+            targetChannel.permissionsFor(message.guild.members.me)?.has(PermissionFlagsBits.SendMessages)
+        ) {
+            await targetChannel.send({
+                content: roleMentions ? `${roleMentions}\n${moderatorMessage}` : moderatorMessage
+            });
+            return;
+        }
+
+        console.log(`[MODERATOR ALERT] ${moderatorMessage}`);
+    } catch (modError) {
+        console.error('Failed to send moderator notification:', modError);
+    }
 }
 const {
     buildTranscriptAttachment,
@@ -1133,6 +1171,30 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
+    const discordInviteMatch = message.content.match(DISCORD_INVITE_LINK_REGEX);
+    if (discordInviteMatch && !isAdminMember(message.member)) {
+        const inviteLink = discordInviteMatch[0];
+
+        try {
+            await message.delete();
+
+            try {
+                await message.author.send(`Warning: Your message was deleted because Discord invite links are not allowed in this server.\n\nAdmins are allowed to send Discord invite links.`);
+            } catch (dmError) {
+                console.log(`Could not send DM to user ${message.author.id} (${message.author.tag}): likely DMs disabled`);
+            }
+
+            await sendModeratorAlert(
+                message,
+                `Moderator Alert: User ${message.author} (${message.author.id}) sent a Discord invite link that was automatically deleted.\n\nInvite link: ${inviteLink}\nMessage content: ${message.content || '[No text content]'}\nChannel: ${message.channel} (${message.channel.id})\nTimestamp: ${new Date().toLocaleString()}`
+            );
+        } catch (error) {
+            console.error('Error processing Discord invite link:', error);
+        }
+
+        return;
+    }
+
     const attachmentsToCheck = getMessageAttachmentsForModeration(message);
 
     // Check if message has attachments, including Discord forwarded message snapshots
@@ -1168,14 +1230,12 @@ client.on(Events.MessageCreate, async message => {
 
                         const moderatorMessage = `🚨 **Moderator Alert**: User ${message.author} (${message.author.id}) sent a message with forbidden image filename \`${filename}\` that was automatically deleted.\n\nMessage content: ${message.content || '[No text content]'}\nChannel: ${message.channel} (${message.channel.id})\nTimestamp: ${new Date().toLocaleString()}`;
 
-                        // Send to a appropriate channel - we'll use the first available channel where bot can send messages
-                        // For now, we'll try to send to the guild's system channel or first text channel
-                        const targetChannel = message.guild.systemChannel ||
-                                            message.guild.channels.cache.find(c =>
-                                                c.type === ChannelType.GuildText &&
-                                                c.permissionsFor(message.guild.members.me).has(PermissionFlagsBits.SendMessages)
-                                            ) ||
-                                            message.channel; // Fallback to original channel if no better option
+                        const targetChannel = await getBotChatChannel(message.guild);
+
+                        if (!targetChannel) {
+                            console.log(`[MODERATOR ALERT] User ${message.author.tag} (${message.author.id}) sent forbidden image: ${filename}`);
+                            break;
+                        }
 
                         await targetChannel.send({
                             content: `${roleMentions}\n${moderatorMessage}`
